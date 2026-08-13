@@ -250,6 +250,32 @@ export const featureFlagsSchema = z.object({
   notificationsEnabled: z.boolean(),
 });
 
+/* -------------------------- guest → account import ----------------------- */
+
+/**
+ * A guest's local data, handed to the server once they create an account.
+ *
+ * References between rows use the guest's own local ids (`localId`), which the
+ * server rewrites to real UUIDs as it inserts. Nothing here is trusted: every
+ * row is re-validated by the same schemas the normal endpoints use, and the
+ * caps below bound how much work one request can ask for.
+ */
+export const importBundleSchema = z.object({
+  profile: profileSchema.partial().optional(),
+  gradingSystem: gradingSystemSchema.optional(),
+  academicYears: z.array(academicYearSchema.extend({ localId: idSchema })).max(20).default([]),
+  terms: z.array(termSchema.extend({ localId: idSchema })).max(80).default([]),
+  courses: z.array(courseSchema.extend({ localId: idSchema })).max(300).default([]),
+  topics: z.array(topicSchema.extend({ localId: idSchema })).max(3000).default([]),
+  results: z.array(resultSchema).max(600).default([]),
+  events: z.array(eventSchema).max(400).default([]),
+  tasks: z.array(taskSchema).max(400).default([]),
+  availability: z.array(availabilitySchema).max(60).default([]),
+  goals: z.array(goalSchema).max(50).default([]),
+});
+
+export type ImportBundle = z.infer<typeof importBundleSchema>;
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ProfileInput = z.infer<typeof profileSchema>;

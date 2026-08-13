@@ -7,8 +7,8 @@
  * than accepted from the request.
  */
 
-import { idSchema, resultSchema } from '@shared/schemas';
-import { computeGpa } from '@shared/gpa';
+import { idSchema, resultSchema } from '../shared/schemas';
+import { computeGpa } from '../shared/gpa';
 import { one, sql } from './_lib/db';
 import {
   fail,

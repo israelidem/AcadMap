@@ -12,8 +12,8 @@
  * link is shown exactly once — at creation.
  */
 
-import { shareSnapshotSchema } from '@shared/schemas';
-import { computeGpa } from '@shared/gpa';
+import { shareSnapshotSchema } from '../shared/schemas';
+import { computeGpa } from '../shared/gpa';
 import { one, sql } from './_lib/db';
 import {
   fail,

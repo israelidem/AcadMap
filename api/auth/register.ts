@@ -1,6 +1,6 @@
 /** POST /api/auth/register — create an account and start a session. */
 
-import { registerSchema } from '@shared/schemas';
+import { registerSchema } from '../../shared/schemas';
 import { one, sql } from '../_lib/db';
 import {
   clientIp,

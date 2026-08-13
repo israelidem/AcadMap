@@ -5,7 +5,7 @@
  * The user id always comes from the session, never from the request body.
  */
 
-import { profileSchema } from '@shared/schemas';
+import { profileSchema } from '../shared/schemas';
 import { one } from './_lib/db';
 import {
   fail,

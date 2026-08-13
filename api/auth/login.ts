@@ -1,6 +1,6 @@
 /** POST /api/auth/login — verify credentials and start a session. */
 
-import { loginSchema } from '@shared/schemas';
+import { loginSchema } from '../../shared/schemas';
 import { one, sql } from '../_lib/db';
 import {
   clientIp,

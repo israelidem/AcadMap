@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { feedbackSchema, feedbackStatusSchema, idSchema } from '@shared/schemas';
+import { feedbackSchema, feedbackStatusSchema, idSchema } from '../shared/schemas';
 import { one, sql } from './_lib/db';
 import {
   clientIp,

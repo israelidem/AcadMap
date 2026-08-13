@@ -402,3 +402,34 @@ BEGIN
   DELETE FROM usage_events    WHERE created_at < now() - INTERVAL '180 days';
 END;
 $$ LANGUAGE plpgsql;
+
+/* -------------------------------------------------------------------------- */
+/* Additive changes                                                           */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Columns added after the first draft. Written as idempotent ALTERs rather than
+ * edits to the definitions above so that `npm run db:push` can be re-run against
+ * a database that already holds student data.
+ *
+ * Each one closes a gap where the client models something the server could not
+ * store, which would have quietly lost data on save:
+ */
+
+/* Pass/fail and audited courses must be excludable from GPA. */
+ALTER TABLE results
+  ADD COLUMN IF NOT EXISTS counts_in_gpa BOOLEAN NOT NULL DEFAULT true;
+
+/* Study progress per topic drives the planner's remaining workload. */
+ALTER TABLE course_topics
+  ADD COLUMN IF NOT EXISTS completed_minutes INTEGER NOT NULL DEFAULT 0
+  CHECK (completed_minutes >= 0);
+
+/* An exam from 09:00 to 12:00 is a range, not an instant. */
+ALTER TABLE events
+  ADD COLUMN IF NOT EXISTS end_time TEXT;
+
+/* Semester, trimester, quarter or custom — never assumed. */
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS term_structure TEXT NOT NULL DEFAULT 'SEMESTER'
+  CHECK (term_structure IN ('SEMESTER', 'TRIMESTER', 'QUARTER', 'CUSTOM'));

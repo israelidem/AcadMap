@@ -8,7 +8,7 @@
  * simply affects zero rows rather than someone else's data.
  */
 
-import { courseSchema, idSchema } from '@shared/schemas';
+import { courseSchema, idSchema } from '../shared/schemas';
 import { one, sql } from './_lib/db';
 import {
   fail,
