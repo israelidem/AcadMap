@@ -38,7 +38,7 @@ interface ResultRow {
 
 const COLUMNS = `id, term_id AS "termId", course_name AS "courseName", course_code AS "courseCode",
                  units::float8 AS units, grade_label AS "gradeName",
-                 grade_point::float8 AS "gradePoint", true AS "countsInGpa"`;
+                 grade_point::float8 AS "gradePoint", counts_in_gpa AS "countsInGpa"`;
 
 export default async function handler(request: Request): Promise<Response> {
   const crossSite = requireSameOrigin(request);
@@ -64,8 +64,13 @@ export default async function handler(request: Request): Promise<Response> {
           [userId],
         );
 
+    // Pass/fail and audited courses are excluded from the GPA but still listed.
     const breakdown = computeGpa(
-      rows.map((row) => ({ units: row.units, gradePoint: row.gradePoint, countsInGpa: true })),
+      rows.map((row) => ({
+        units: row.units,
+        gradePoint: row.gradePoint,
+        countsInGpa: row.countsInGpa,
+      })),
     );
     // Results change rarely, so an unchanged record answers 304 on revisit.
     return jsonCached(request, { results: rows, ...breakdown });
@@ -102,8 +107,8 @@ export default async function handler(request: Request): Promise<Response> {
     return idempotent(request, userId, 'results', async () => {
       const result = await one(
         `INSERT INTO results (user_id, term_id, course_id, course_name, course_code, units,
-                              grade_label, grade_point, is_repeat, replaces_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                              grade_label, grade_point, is_repeat, replaces_id, counts_in_gpa)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING ${COLUMNS}`,
         [
           userId,
@@ -116,6 +121,7 @@ export default async function handler(request: Request): Promise<Response> {
           rule.point,
           data.isRepeat,
           data.replacesResultId,
+          data.countsInGpa,
         ],
       );
       await track('result_recorded', userId);

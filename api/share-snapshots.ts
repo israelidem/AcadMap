@@ -84,15 +84,15 @@ export default async function handler(request: Request): Promise<Response> {
         continue;
       }
       if (field === 'cgpa') {
-        const { rows } = await sql<{ units: number; gradePoint: number }>(
-          `SELECT units::float8 AS units, grade_point::float8 AS "gradePoint"
+        const { rows } = await sql<{ units: number; gradePoint: number; countsInGpa: boolean }>(
+          `SELECT units::float8 AS units, grade_point::float8 AS "gradePoint",
+                  counts_in_gpa AS "countsInGpa"
              FROM results WHERE user_id = $1`,
           [userId],
         );
-        // Every recorded result counts towards the cumulative figure.
-        const { gpa, totalUnits } = computeGpa(
-          rows.map((row) => ({ ...row, countsInGpa: true })),
-        );
+        // Same rule as the dashboard, so a shared CGPA matches what the student
+        // sees: results marked as not counting are left out.
+        const { gpa, totalUnits } = computeGpa(rows);
         payload.cgpa = gpa;
         payload.completedUnits = totalUnits;
       }
