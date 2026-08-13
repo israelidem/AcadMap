@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * AcadMap design tokens.
+ * Colours are stored as raw RGB channels so Tailwind can apply opacity.
+ */
+@layer base {
+  :root {
+    --am-bg: 248 250 252;
+    --am-surface: 255 255 255;
+    --am-surface-2: 241 245 249;
+    --am-border: 226 232 240;
+    --am-fg: 15 23 42;
+    --am-muted: 100 116 139;
+    --am-brand: 22 88 141;
+    --am-brand-fg: 255 255 255;
+    --am-brand-soft: 224 240 250;
+    --am-success: 21 128 61;
+    --am-warning: 180 83 9;
+    --am-danger: 185 28 28;
+  }
+
+  .dark {
+    --am-bg: 8 12 22;
+    --am-surface: 17 24 39;
+    --am-surface-2: 30 41 59;
+    --am-border: 42 54 74;
+    --am-fg: 237 242 247;
+    --am-muted: 148 163 184;
+    --am-brand: 96 173 226;
+    --am-brand-fg: 8 12 22;
+    --am-brand-soft: 23 43 61;
+    --am-success: 74 222 128;
+    --am-warning: 251 191 36;
+    --am-danger: 248 113 113;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+  }
+
+  /* Visible, consistent keyboard focus everywhere. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand ring-offset-2;
+    --tw-ring-offset-color: rgb(var(--am-bg));
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold tracking-tight;
+  }
+
+  /* Numeric data reads better with tabular figures. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .am-card {
+    @apply rounded-2xl border border-border bg-surface shadow-card;
+  }
+
+  .am-input {
+    @apply w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-fg
+      placeholder:text-muted/70 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .am-label {
+    @apply mb-1.5 block text-sm font-medium text-fg;
+  }
+
+  .am-hint {
+    @apply mt-1.5 text-xs text-muted;
+  }
+
+  .am-error {
+    @apply mt-1.5 text-xs font-medium text-danger;
+  }
+
+  /* Minimum 44px touch target on interactive rows. */
+  .am-touch {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  .am-skeleton {
+    @apply animate-pulse rounded-lg bg-surface-2;
+  }
+}
