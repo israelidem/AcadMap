@@ -211,13 +211,23 @@ export function resetDatabase(): void {
   update(() => emptyDatabase());
 }
 
-/** Subscribe a component to a slice of the database. */
+/**
+ * Subscribe a component to a slice of the database.
+ *
+ * The snapshot handed to `useSyncExternalStore` is the database object itself,
+ * never the selected slice. Selectors here build new objects and arrays
+ * (`{ courses: […] }`), so returning one as the snapshot would look like a fresh
+ * value on every call and re-render forever — a warning in development and
+ * "Maximum update depth exceeded" in a production build.
+ *
+ * Because `update()` replaces `db` immutably, this reference changes exactly when
+ * the data does. The selector then runs during render, which also keeps results
+ * correct when only its inputs change (a different `userId`, say) and the
+ * database has not.
+ */
 export function useDb<T>(selector: (current: Database) => T): T {
-  return useSyncExternalStore(
-    subscribe,
-    () => selector(db),
-    () => selector(db),
-  );
+  const current = useSyncExternalStore(subscribe, getDatabase, getDatabase);
+  return selector(current);
 }
 
 export function replaceCollection<K extends keyof Database>(
