@@ -14,9 +14,15 @@ import { trackEvent } from './analytics';
 
 const PBKDF2_ITERATIONS = 100_000;
 
-/** The single designated owner account, configured at build time. */
-export const OWNER_EMAIL = (import.meta.env.VITE_OWNER_EMAIL ?? 'owner@acadmap.app')
+/**
+ * The single designated owner account.
+ *
+ * `VITE_OWNER_EMAIL` overrides it for other deployments; the default is the
+ * AcadMap owner so a fresh deploy needs no environment variable to get an admin.
+ */
+export const OWNER_EMAIL = (import.meta.env.VITE_OWNER_EMAIL ?? 'israelidem20@gmail.com')
   .toString()
+  .trim()
   .toLowerCase();
 
 function toHex(buffer: ArrayBuffer): string {
@@ -151,6 +157,29 @@ export async function login(email: string, password: string): Promise<AuthResult
 
   trackEvent('app_opened', user.id);
   return { ok: true, userId: user.id };
+}
+
+/**
+ * Keeps the owner role in step with `OWNER_EMAIL`.
+ *
+ * The role is stored on the account row when it is created, so an account
+ * registered before the owner address was configured would stay a student for
+ * ever. Running this at startup promotes the designated address and demotes any
+ * other row still marked OWNER, which also means changing `VITE_OWNER_EMAIL`
+ * hands admin over cleanly instead of leaving two owners behind.
+ */
+export function syncOwnerRole(): void {
+  const users = getDatabase().users;
+  const stale = users.some((u) => (u.email === OWNER_EMAIL) !== (u.role === 'OWNER'));
+  if (!stale) return;
+
+  update((current) => ({
+    ...current,
+    users: current.users.map((u) => ({
+      ...u,
+      role: u.email === OWNER_EMAIL ? 'OWNER' : 'STUDENT',
+    })),
+  }));
 }
 
 export function logout(): void {

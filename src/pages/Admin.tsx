@@ -7,7 +7,8 @@
  */
 
 import { useMemo, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, ShieldAlert } from 'lucide-react';
 import type { FeatureFlags, FeedbackStatus } from '@shared/types';
 import { countEvents, daysAgoIso } from '@/lib/analytics';
 import {
@@ -64,18 +65,6 @@ export default function Admin() {
 
   const db = useDb((current) => current);
 
-  if (!user || !isOwner) {
-    return (
-      <Card>
-        <EmptyState
-          icon={<ShieldAlert className="h-6 w-6" />}
-          title="403 — Not authorised"
-          description="The AcadMap admin dashboard is restricted to the owner account."
-        />
-      </Card>
-    );
-  }
-
   const since = daysAgoIso(Number(range));
   const students = db.users.filter((row) => row.role !== 'OWNER');
   const profileOf = (userId: string) => db.profiles.find((row) => row.userId === userId);
@@ -111,8 +100,31 @@ export default function Admin() {
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [students, db.profiles]);
 
+  // Checked after the hooks above so the hook order cannot change when the role
+  // does; the server repeats this check on every admin request regardless.
+  if (!user || !isOwner) {
+    return (
+      <Card>
+        <EmptyState
+          icon={<ShieldAlert className="h-6 w-6" />}
+          title="403 — Not authorised"
+          description="The AcadMap admin dashboard is restricted to the owner account."
+        />
+      </Card>
+    );
+  }
+
   return (
     <>
+      {/* The installed PWA has no browser chrome, so this is the only way back. */}
+      <Link
+        to="/app"
+        className="mb-3 inline-flex items-center gap-1.5 text-sm font-medium text-muted hover:text-fg"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to AcadMap
+      </Link>
+
       <PageHeader
         title="AcadMap admin"
         description="Understand, manage and improve the student experience."

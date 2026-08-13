@@ -16,7 +16,8 @@ import {
 } from '../_lib/http';
 import { hashPassword } from '../_lib/password';
 
-const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? '').trim().toLowerCase();
+/** Default matches the client (`VITE_OWNER_EMAIL`); OWNER_EMAIL overrides it. */
+const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? 'israelidem20@gmail.com').trim().toLowerCase();
 
 export const config = { runtime: 'edge' };
 

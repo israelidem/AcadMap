@@ -104,11 +104,16 @@ export function AppLayout() {
             </button>
             <NotificationBell />
             <ThemeToggle />
+            {/*
+              Shown at every width: the owner's main surface is the installed PWA
+              on a phone, where the header is the only always-visible chrome.
+            */}
             {isOwner && (
               <Link
                 to="/admin"
-                className="am-touch hidden place-items-center rounded-xl text-muted hover:bg-surface-2 sm:grid"
+                className="am-touch grid place-items-center rounded-xl text-brand hover:bg-brand-soft"
                 aria-label="Admin dashboard"
+                title="Admin dashboard"
               >
                 <Shield className="h-5 w-5" />
               </Link>

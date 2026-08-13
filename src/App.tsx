@@ -1,7 +1,7 @@
 /** Routing, route guards and lazy-loaded pages. */
 
 import { Suspense, lazy, type ReactNode } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { PageLoader } from './components/ui';
 import { AppLayout } from './components/layout';
 import { useReminders } from './components/notifications';
@@ -50,6 +50,9 @@ function RequireOwner({ children }: { children: ReactNode }) {
         <p className="mt-2 text-sm text-muted">
           The AcadMap admin dashboard is restricted to the product owner.
         </p>
+        <Link to="/app" className="mt-4 inline-block text-sm font-medium text-brand hover:underline">
+          Back to AcadMap
+        </Link>
       </div>
     );
   }
