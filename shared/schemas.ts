@@ -299,7 +299,9 @@ export type GradingSystemInput = z.infer<typeof gradingSystemSchema>;
 
 /** The collections a device is allowed to sync. Anything else is rejected. */
 export const SYNC_COLLECTIONS = [
+  'profiles',
   'gradingSystems',
+
   'academicYears',
   'terms',
   'courses',

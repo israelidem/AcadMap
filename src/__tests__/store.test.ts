@@ -15,6 +15,7 @@ import {
   patchRow,
   removeRow,
   resetDatabase,
+  update,
 } from '@/lib/store';
 
 function course(id: string): Course {
@@ -104,3 +105,81 @@ describe('store write path', () => {
     expect(getDatabase().tombstones.map((t) => t.id).sort()).toEqual(['c1', 'c2']);
   });
 });
+
+/*
+ * The bug these cover cost a student every course and result they recorded: the
+ * action layer writes through `update()` rather than the helpers above, so rows
+ * were saved with no timestamp, read as dated 1970, and never offered to the
+ * server. Stamping now happens in `update()` itself, which is the only place no
+ * write can go around.
+ */
+describe('update stamps whatever a write changed', () => {
+  beforeEach(() => {
+    resetDatabase();
+  });
+
+  it('stamps a row added without a timestamp of its own', () => {
+    // Exactly what `createCourse` does: build the row, hand back a new array.
+    update((current) => ({ ...current, courses: [...current.courses, course('c1')] }));
+
+    const row = getDatabase().courses[0] as Course & { updatedAt?: string };
+    expect(typeof row.updatedAt).toBe('string');
+  });
+
+  it('stamps an edited row, so the edit is offered to the server', () => {
+    update((current) => ({ ...current, courses: [course('c1')] }));
+    const before = (getDatabase().courses[0] as Course & { updatedAt: string }).updatedAt;
+
+    update((current) => ({
+      ...current,
+      courses: current.courses.map((row) =>
+        row.id === 'c1' ? { ...row, units: 4 } : row,
+      ),
+    }));
+
+    const after = getDatabase().courses[0] as Course & { updatedAt: string };
+    expect(after.units).toBe(4);
+    expect(after.updatedAt >= before).toBe(true);
+  });
+
+  it('leaves a row that arrived from the server alone', () => {
+    /*
+     * The stamp a pulled row carries belongs to the device that made the edit.
+     * Re-stamping it here would make every pull look like a local change and push
+     * the whole account straight back on the next exchange.
+     */
+    const remote = { ...course('c1'), updatedAt: '2026-03-01T10:00:00.000Z' };
+    update((current) => ({ ...current, courses: [remote as Course] }));
+
+    const row = getDatabase().courses[0] as Course & { updatedAt: string };
+    expect(row.updatedAt).toBe('2026-03-01T10:00:00.000Z');
+  });
+
+  it('does not touch rows a write left as they were', () => {
+    update((current) => ({ ...current, courses: [course('c1'), course('c2')] }));
+    const untouched = getDatabase().courses[0];
+
+    // Editing c2 must not disturb c1 — including its identity, which is how the
+    // store tells "changed" from "carried over".
+    update((current) => ({
+      ...current,
+      courses: current.courses.map((row) =>
+        row.id === 'c2' ? { ...row, units: 5 } : row,
+      ),
+    }));
+
+    expect(getDatabase().courses[0]).toBe(untouched);
+  });
+
+  it('ignores collections that do not sync', () => {
+    update((current) => ({
+      ...current,
+      announcements: [{ id: 'a1', title: 'x', body: 'y' } as never],
+    }));
+
+    const row = getDatabase().announcements[0] as { updatedAt?: string };
+    expect(row.updatedAt).toBeUndefined();
+  });
+});
+
+

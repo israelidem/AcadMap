@@ -137,8 +137,10 @@ async function mirrorAccount(
         : [
             ...current.profiles,
             {
+              id: userId,
               userId,
               fullName: fullName.trim(),
+
               institution: '',
               faculty: '',
               department: '',
@@ -158,10 +160,34 @@ async function mirrorAccount(
     };
   });
 
-  // Pull the account's data straight away: on a new device this is the moment
-  // the student expects their courses and results to appear.
-  void syncNow();
+  await pullAccount();
 }
+
+/** How long a sign-in will wait for the account to arrive before continuing. */
+const FIRST_PULL_MS = 10_000;
+
+/**
+ * Waits for the account's data to arrive, but not indefinitely.
+ *
+ * This is awaited rather than fired and forgotten because of what happens in the
+ * gap: the router decides where to send someone from the profile it can see, and
+ * a device that has not pulled one yet has no profile at all — so a student with
+ * a complete account was shown the onboarding form, filled it in, and landed on
+ * an empty dashboard. Waiting means the first thing they see is their own work.
+ *
+ * The cap matters as much as the wait. A slow network or a failing sync must not
+ * hold someone out of an app that works offline, so when the time is up the
+ * sign-in proceeds and the background loop keeps trying.
+ */
+async function pullAccount(): Promise<void> {
+  await Promise.race([
+    syncNow(),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, FIRST_PULL_MS);
+    }),
+  ]);
+}
+
 
 /**
  * True when the API answered. A transport failure means the server had no say,
@@ -278,8 +304,10 @@ export async function register(
     profiles: [
       ...current.profiles,
       {
+        id: userId,
         userId,
         fullName: fullName.trim(),
+
         institution: '',
         faculty: '',
         department: '',

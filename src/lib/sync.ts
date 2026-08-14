@@ -36,6 +36,8 @@ import {
 } from '@shared/sync';
 import { SYNC_COLLECTIONS } from '@shared/schemas';
 import { ApiError, api } from './api';
+import { lastSyncedAt, setLastSyncedAt } from './watermark';
+
 import {
   SYNCED_COLLECTIONS,
   getDatabase,
@@ -64,32 +66,10 @@ export interface SyncState {
   conflicts: Array<Conflict<SyncableRow>>;
 }
 
-/*
- * The watermark lives outside the database snapshot: it is device-local
- * bookkeeping, not account data, and must not travel to another device where it
- * would claim rows had already been seen.
- */
-const WATERMARK_KEY = 'acadmap.sync.lastSyncedAt';
+// The watermark itself lives in `watermark.ts`: the store's migrations need to
+// clear it, and the store cannot import this module.
+export { forgetSyncState, lastSyncedAt } from './watermark';
 
-function watermarkKey(userId: string): string {
-  return `${WATERMARK_KEY}.${userId}`;
-}
-
-export function lastSyncedAt(userId: string): string | null {
-  if (typeof localStorage === 'undefined') return null;
-  return localStorage.getItem(watermarkKey(userId));
-}
-
-function setLastSyncedAt(userId: string, at: string): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(watermarkKey(userId), at);
-}
-
-/** Clears the watermark so the next sync re-reads the whole account. */
-export function forgetSyncState(userId: string): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.removeItem(watermarkKey(userId));
-}
 
 /* ------------------------------ observable state ------------------------- */
 

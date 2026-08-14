@@ -25,6 +25,7 @@ import { Badge, Button, Modal } from './ui';
 import { LogoMark } from './brand';
 
 import { NotificationBell } from './notifications';
+import { SyncStatus } from './syncStatus';
 import { FeedbackForm } from './feedback';
 
 const PRIMARY = [
@@ -106,7 +107,9 @@ export function AppLayout() {
               <MessageSquarePlus className="h-5 w-5" />
             </button>
             <NotificationBell />
+            <SyncStatus />
             <ThemeToggle />
+
             {/*
               Shown at every width: the owner's main surface is the installed PWA
               on a phone, where the header is the only always-visible chrome.

@@ -36,7 +36,9 @@ import type {
 } from '@shared/types';
 import { PRESET_GRADING_SYSTEMS } from '@shared/grading';
 import { migrateIdsToUuid, migrateSyncMetadata } from './migrations';
+import { forgetAllSyncWatermarks } from './watermark';
 import { nowIso } from './utils';
+
 
 
 export interface Credential {
@@ -113,10 +115,12 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
 const STORAGE_KEY = 'acadmap.db.v1';
 
 /**
- * Bumped to 2 when ids became UUIDs and rows gained sync bookkeeping. `load()`
- * brings older snapshots forward; see `migrations.ts`.
+ * 2 when ids became UUIDs and rows gained sync bookkeeping; 3 when writes began
+ * being stamped centrally, which is also when rows already saved without a stamp
+ * had to be rescued. `load()` brings older snapshots forward; see
+ * `migrations.ts`.
  */
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 /**
  * Collections that sync to the server, and so must carry `updatedAt` and
@@ -127,6 +131,10 @@ const DB_VERSION = 2;
  * server-side auth (`users`, `credentials`).
  */
 export const SYNCED_COLLECTIONS = [
+  // The profile says whether academic setup is finished. Without it, a second
+  // device sends the student back through onboarding and then shows them an
+  // empty dashboard, even though the account is complete.
+  'profiles',
   'gradingSystems',
   'academicYears',
   'terms',
@@ -190,14 +198,36 @@ function hydrate(parsed: Partial<Database>): Database {
     // idempotent, but they walk the whole snapshot, so they run only when the
     // stored version says they are needed.
     next = migrateIdsToUuid(next);
+  }
+
+  if ((parsed.version ?? 1) < 3) {
+    /*
+     * Rescues rows that were saved before writes were stamped centrally.
+     *
+     * Until then the action layer wrote rows with no `updatedAt` at all. The
+     * sync engine reads an unstamped row as dated 1970 and only offers rows
+     * newer than the last completed sync, so every course, result and session a
+     * student recorded after their first sync was silently unsendable. Stamping
+     * them now and forgetting the watermark makes the whole account look new,
+     * which is exactly right: as far as the server is concerned, it is.
+     */
+    next.profiles = next.profiles.map((profile) => ({
+      ...profile,
+      // Profiles predate having an id of their own; sync addresses rows by id.
+      id: profile.id ?? profile.userId,
+    }));
+
     next = migrateSyncMetadata(
       next as unknown as Record<string, unknown>,
       [...SYNCED_COLLECTIONS],
       nowIso(),
     ) as unknown as Database;
+
+    forgetAllSyncWatermarks();
   }
 
   return { ...next, version: DB_VERSION };
+
 }
 
 function load(): Database {
@@ -280,13 +310,64 @@ export function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+/**
+ * Gives every row a write changed a fresh `updatedAt`.
+ *
+ * This is what makes a write visible to sync, and it is done here rather than at
+ * each call site because it was done at call sites and they did not do it: the
+ * action layer writes through `update()` directly, so rows were saved with no
+ * stamp, the sync engine read them as dated 1970, and nothing a student typed
+ * after their first sync was ever uploaded. One choke point cannot be forgotten.
+ *
+ * A row is left alone when it already carries a stamp the mutator chose: rows
+ * arriving from the server are authored by another device and re-stamping them
+ * would send them straight back as if they were local edits.
+ *
+ *   * same object as before  → nothing changed, leave it
+ *   * new row with a stamp   → came from the server, leave it
+ *   * changed, stamp is the  → a local edit, stamp it now
+ *     one it already had
+ */
+function stampWrites(previous: Database, next: Database, at: string): Database {
+  let result = next;
+
+  for (const key of SYNCED_COLLECTIONS) {
+    const before = previous[key] as unknown as Array<Record<string, unknown>>;
+    const after = next[key] as unknown as Array<Record<string, unknown>>;
+    // Untouched collections are the common case: one reference compare each.
+    if (before === after) continue;
+
+    const byId = new Map(before.map((row) => [row.id, row]));
+    let changed = false;
+
+    const stamped = after.map((row) => {
+      const old = byId.get(row.id);
+      if (old === row) return row;
+      if (!old) return typeof row.updatedAt === 'string' ? row : { ...row, updatedAt: at };
+      if (old.updatedAt !== row.updatedAt) return row;
+      changed = true;
+      return { ...row, updatedAt: at };
+    });
+
+    // Rebuilt only when a stamp was actually added, so subscribers are not woken
+    // by a new array holding all the same rows.
+    if (changed || stamped.some((row, index) => row !== after[index])) {
+      result = { ...result, [key]: stamped };
+    }
+  }
+
+  return result;
+}
+
 /** Applies an immutable update, persists it and notifies subscribers. */
 export function update(mutator: (current: Database) => Database): void {
   syncFromStorage();
-  db = mutator(db);
+  const previous = db;
+  db = stampWrites(previous, mutator(previous), nowIso());
   persist();
   notify();
 }
+
 
 export function resetDatabase(): void {
   update(() => emptyDatabase());

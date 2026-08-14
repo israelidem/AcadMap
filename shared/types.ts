@@ -31,7 +31,17 @@ export interface User {
 }
 
 export interface Profile {
+  /**
+   * Always equal to `userId`.
+   *
+   * One profile per account, so the account's id identifies it perfectly well —
+   * but sync addresses every row by `id`, and the profile has to reach a
+   * student's other devices because it carries whether setup is finished. A
+   * device without it sends the student back through onboarding.
+   */
+  id: ID;
   userId: ID;
+
   fullName: string;
   institution: string;
   faculty: string;
