@@ -70,10 +70,15 @@ export function AppLayout() {
   const name = profile?.fullName || user?.email || 'Student';
 
   return (
-    <div className="min-h-dvh bg-bg">
+    <div className="min-h-dvh overflow-x-hidden bg-bg">
       <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5">
-          <Link to="/app" className="flex items-center gap-2 font-semibold">
+          {/*
+            shrink-0 and nowrap, or the name loses. The icon row to the right was
+            allowed to take what it liked, so on a narrow phone the wordmark was
+            squeezed into a column of single letters.
+          */}
+          <Link to="/app" className="flex shrink-0 items-center gap-2 whitespace-nowrap font-semibold">
             <LogoMark />
             <span>AcadMap</span>
           </Link>
@@ -97,12 +102,15 @@ export function AppLayout() {
             ))}
           </nav>
 
-          <div className="ml-auto flex items-center gap-1">
+          {/* min-w-0 so this row yields space rather than pushing the name out. */}
+          <div className="ml-auto flex min-w-0 items-center gap-1">
+            {/* Feedback and admin live in the menu on a phone: what stays in the
+                header is what a student reaches for mid-task. */}
             <button
               type="button"
               onClick={() => setFeedbackOpen(true)}
               aria-label="Send feedback"
-              className="am-touch grid place-items-center rounded-xl text-muted hover:bg-surface-2"
+              className="am-touch hidden place-items-center rounded-xl text-muted hover:bg-surface-2 lg:grid"
             >
               <MessageSquarePlus className="h-5 w-5" />
             </button>
@@ -110,14 +118,11 @@ export function AppLayout() {
             <SyncStatus />
             <ThemeToggle />
 
-            {/*
-              Shown at every width: the owner's main surface is the installed PWA
-              on a phone, where the header is the only always-visible chrome.
-            */}
             {isOwner && (
               <Link
                 to="/admin"
-                className="am-touch grid place-items-center rounded-xl text-brand hover:bg-brand-soft"
+                className="am-touch hidden place-items-center rounded-xl text-brand hover:bg-brand-soft lg:grid"
+
                 aria-label="Admin dashboard"
                 title="Admin dashboard"
               >
@@ -222,6 +227,18 @@ export function AppLayout() {
               <Badge tone="brand">Owner</Badge>
             </NavLink>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              setFeedbackOpen(true);
+            }}
+            className="am-touch flex items-center gap-3 rounded-xl px-3 text-left text-sm hover:bg-surface-2"
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+            Send feedback
+          </button>
+
           <button
             type="button"
             onClick={() => {

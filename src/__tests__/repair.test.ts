@@ -68,13 +68,37 @@ describe('opening a half-synced account', () => {
     // make every local copy look newer than the server's and win merges it
     // should lose.
     expect(db.results[0]).toMatchObject({ score: 71, updatedAt: '2026-05-01T00:00:00.000Z' });
-    expect(db.version).toBe(4);
+    expect(db.version).toBe(5);
+  });
+
+  it('rewrites timestamps the server sent in its own format', async () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...halfSyncedSnapshot(),
+        // Exactly what Postgres renders, and what pulled rows were stored with.
+        results: [{ id: RESULT, userId: USER, score: 71, updatedAt: '2026-05-01 09:30:00+00' }],
+        tombstones: [
+          { id: 'deleted-one', collection: 'courses', deletedAt: '2026-05-01 09:30:00+00' },
+        ],
+      }),
+    );
+
+    const { getDatabase } = await openApp();
+    const db = getDatabase();
+
+    // Same instant, spelled the way the API accepts. Left as it was, this row
+    // failed validation on every push and took the whole sync down with it.
+    expect((db.results[0] as { updatedAt?: string }).updatedAt).toBe('2026-05-01T09:30:00.000Z');
+
+    expect(db.tombstones[0].deletedAt).toBe('2026-05-01T09:30:00.000Z');
   });
 
   it('does not queue anything on an account that is already up to date', async () => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ ...halfSyncedSnapshot(), version: 4, outbox: [] }),
+      JSON.stringify({ ...halfSyncedSnapshot(), version: 5, outbox: [] }),
+
     );
 
     const { getDatabase } = await openApp();

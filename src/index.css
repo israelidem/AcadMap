@@ -140,11 +140,65 @@
     /* Hints that there is more to the right without needing a visible scrollbar. */
     scroll-snap-type: x proximity;
     overscroll-behavior-x: contain;
+    /*
+     * Why a scroller could still stretch the page around it: a grid or flex child
+     * is `min-width: auto`, meaning "at least as wide as my content". The overflow
+     * never engaged — the container simply grew, and took the layout with it. That
+     * is what widened the academic record on a phone as soon as results were
+     * listed. Saying otherwise, explicitly, is the whole fix.
+     */
+    min-width: 0;
+    max-width: 100%;
   }
 
   .am-scroll-x > * {
     scroll-snap-align: start;
   }
+
+  /*
+   * A row of controls that must not become a stack.
+   *
+   * Buttons and badges wrapping onto new lines is what made them look displaced:
+   * a toolbar turned into a ragged column, and a badge landed under the heading
+   * it belonged to. These scroll sideways instead, so the arrangement a student
+   * learns on a laptop is the one they see on a phone.
+   */
+  .am-row-x {
+    @apply flex items-center gap-2 overflow-x-auto;
+    min-width: 0;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
+  }
+
+  .am-row-x > * {
+    @apply shrink-0;
+  }
 }
+
+@layer base {
+  /*
+   * Nothing may make the page wider than the screen.
+   *
+   * `overflow-x: hidden` on the body only hides the overflow; the layout has
+   * still been stretched, and every row inside it is already too wide. These are
+   * the elements that do the stretching in practice: an unbroken word, a wide
+   * table, a full-resolution image from a result upload.
+   */
+  img,
+  video,
+  canvas,
+  table,
+  pre {
+    max-width: 100%;
+  }
+
+  main {
+    min-width: 0;
+  }
+}
+
+
 
 

@@ -105,8 +105,9 @@ function localRows(db: Database, collection: SyncedCollection, userId: string): 
       id: String(row.id),
       // Rows written before sync existed have no stamp. Treating them as ancient
       // means the server's copy wins, which is right: this device has no evidence
-      // of when the edit happened.
-      updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : new Date(0).toISOString(),
+      // of when the edit happened. Stamps are normalised here as well, because
+      // merging compares them as strings and two formats do not order together.
+      updatedAt: isoOrNull(row.updatedAt) ?? new Date(0).toISOString(),
       deletedAt: null,
     })) as SyncableRow[];
 }
@@ -133,12 +134,29 @@ function tombstoneToWire(tombstone: Tombstone): WireRow {
   };
 }
 
+/**
+ * A timestamp in the one format both sides agree on, or null if it is not a
+ * timestamp at all.
+ *
+ * Everything that arrives from the server passes through here. Postgres renders
+ * a timestamptz as `2026-08-14 17:12:00+00`, and a stored row carrying that
+ * string is rejected the moment it is pushed back, because the API asks for ISO.
+ * That is how a device could pull an account and then fail every subsequent sync
+ * with "Validation failed" — the server now formats its output, and this repairs
+ * the rows that were saved before it did.
+ */
+function isoOrNull(value: unknown): string | null {
+  if (typeof value !== 'string' || value === '') return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
 function fromWire(row: WireRow): SyncableRow {
   return {
     ...row.data,
     id: row.id,
-    updatedAt: row.updatedAt,
-    deletedAt: row.deletedAt,
+    updatedAt: isoOrNull(row.updatedAt) ?? new Date(0).toISOString(),
+    deletedAt: isoOrNull(row.deletedAt),
   } as SyncableRow;
 }
 
@@ -265,6 +283,12 @@ function drainOutbox(
 
     const tombstone = tombstones.get(entry);
     if (tombstone) {
+      // A delete whose time cannot be read is unsendable; dropping the entry is
+      // better than a payload the server refuses, which would block the queue.
+      if (!isoOrNull(tombstone.deletedAt)) {
+        sent.push({ entry, stamp: null });
+        continue;
+      }
       wire.push(tombstoneToWire(tombstone));
       sent.push({ entry, stamp: tombstone.deletedAt });
       continue;
@@ -279,8 +303,11 @@ function drainOutbox(
     // discard either.
     if ('userId' in row && row.userId !== userId) continue;
 
-    const stamp =
-      typeof row.updatedAt === 'string' ? row.updatedAt : new Date(0).toISOString();
+    // An unreadable stamp is treated as ancient rather than sent as-is: the
+    // server would reject the whole batch, so one bad row would stop the account
+    // syncing at all.
+    const stamp = isoOrNull(row.updatedAt) ?? new Date(0).toISOString();
+
 
     wire.push(toWire(collection, { ...row, id, updatedAt: stamp, deletedAt: null } as SyncableRow));
     // The stamp is recorded, not just the name: an edit landing while this
@@ -332,18 +359,17 @@ async function exchange(userId: string): Promise<boolean> {
         continue;
       }
 
+      const deletedAt = isoOrNull(row.deletedAt) ?? new Date().toISOString();
+
       const local = mineById.get(row.id);
-      if (local && local.updatedAt > row.deletedAt) {
+      if (local && local.updatedAt > deletedAt) {
         // Edited here after the delete elsewhere. Keep it and push it back.
         survivors.add(row.id);
         continue;
       }
 
-      newTombstones.push({
-        id: row.id,
-        collection,
-        deletedAt: row.deletedAt,
-      });
+      newTombstones.push({ id: row.id, collection, deletedAt });
+
     }
 
     const deleted = new Set(

@@ -205,11 +205,13 @@ export function Card({
     <section className={cn('am-card', className)}>
       {(title || action) && (
         <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
-          <div>
+          {/* min-w-0 on the text, shrink-0 on the control: without both, a long
+              title pushes the action out of the card on a narrow screen. */}
+          <div className="min-w-0">
             {title && <h2 className="text-base font-semibold">{title}</h2>}
             {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
           </div>
-          {action}
+          {action && <div className="shrink-0">{action}</div>}
         </header>
       )}
       <div className={cn('px-4 py-4 sm:px-5', bodyClassName)}>{children}</div>
@@ -348,8 +350,20 @@ export function Modal({
 
   if (!open) return null;
 
+  /*
+   * The panel is height-capped and scrolls inside itself.
+   *
+   * It used to size itself to its content, with only the body capped at 70vh. Add
+   * a header, a footer and the sheet's own padding and the whole thing could be
+   * taller than the screen — and because it is aligned to the bottom edge on a
+   * phone, the overflow went off the *top*, taking the close button with it.
+   * There is no way to scroll a flex item back into view, so a tall dialog such
+   * as Sync or Notifications became a dead end: nothing to dismiss, nothing to
+   * scroll. Capping the panel and giving the body `min-h-0` inside a column keeps
+   * the header and footer reachable at any height, on any screen.
+   */
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overscroll-contain p-0 sm:items-center sm:p-4">
       <div
         className="absolute inset-0 bg-black/50 animate-fade-in"
         onClick={onClose}
@@ -359,24 +373,32 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative z-10 w-full max-w-lg animate-slide-up rounded-t-2xl border border-border bg-surface shadow-card sm:rounded-2xl"
+        className="relative z-10 flex max-h-[92dvh] w-full max-w-lg flex-col animate-slide-up rounded-t-2xl border border-border bg-surface shadow-card sm:max-h-[85dvh] sm:rounded-2xl"
       >
-        <header className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h2 className="text-base font-semibold">{title}</h2>
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3">
+          <h2 className="min-w-0 truncate text-base font-semibold">{title}</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="am-touch -mr-2 grid place-items-center rounded-lg text-muted hover:bg-surface-2"
+            className="am-touch -mr-2 grid shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2"
           >
             <X className="h-5 w-5" />
           </button>
         </header>
-        <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <footer className="flex justify-end gap-2 border-t border-border px-5 py-3">{footer}</footer>}
+        {/* pb-safe: the home-indicator area on an installed phone app. */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-4">
+          {children}
+        </div>
+        {footer && (
+          <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-5 py-3">
+            {footer}
+          </footer>
+        )}
       </div>
     </div>
   );
+
 }
 
 export function ConfirmButton({
@@ -490,12 +512,18 @@ export function PageHeader({
 }) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div>
+      <div className="min-w-0 flex-1 basis-[16rem]">
         <h1 className="text-xl font-semibold sm:text-2xl">{title}</h1>
         {description && <p className="mt-1 text-sm text-muted">{description}</p>}
       </div>
-      {action}
+      {/*
+        The action wraps to its own line as a whole, rather than its own contents
+        wrapping: a page header's button ending up half under its label is the
+        "displaced button" this fixes.
+      */}
+      {action && <div className="am-row-x shrink-0 justify-end">{action}</div>}
     </div>
+
   );
 }
 

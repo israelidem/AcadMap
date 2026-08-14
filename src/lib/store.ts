@@ -134,10 +134,11 @@ const STORAGE_KEY = 'acadmap.db.v1';
  * 2 when ids became UUIDs and rows gained sync bookkeeping; 3 when writes began
  * being stamped centrally, which is also when rows already saved without a stamp
  * had to be rescued; 4 when pushes moved to an explicit outbox, which every
- * existing row is enqueued into so a half-synced account finishes uploading.
+ * existing row is enqueued into so a half-synced account finishes uploading;
+ * 5 when timestamps that arrived in Postgres's format were rewritten as ISO.
  * `load()` brings older snapshots forward; see `migrations.ts`.
  */
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 /**
  * Collections that sync to the server, and so must carry `updatedAt` and
@@ -261,6 +262,21 @@ function hydrate(parsed: Partial<Database>): Database {
     next.outbox = withEverythingQueued(next);
   }
 
+  if ((parsed.version ?? 1) < 5) {
+    /*
+     * Rewrites timestamps that came back from the server in Postgres's format.
+     *
+     * A pulled row was stored with `updated_at` exactly as the database rendered
+     * it — `2026-08-14 17:12:00+00`, with a space and an offset instead of a `T`
+     * and a `Z`. The API only accepts ISO, so the first time such a row was
+     * pushed the whole request was rejected: a device that had pulled an account
+     * could never upload again, and said only "Validation failed".
+     *
+     * The instant is unchanged, so merges are unaffected; only the spelling is.
+     */
+    next = withIsoStamps(next);
+  }
+
   return { ...next, version: DB_VERSION };
 
 }
@@ -381,14 +397,21 @@ function stampWrites(previous: Database, next: Database, at: string): Database {
       if (old === row) return row;
       if (!old && typeof row.updatedAt === 'string') return row;
 
+      // An existing row arriving with a different stamp was authored elsewhere and
+      // handed to us by a sync. It must not be queued: the server already has it,
+      // and pushing it back would send its stamp — in the server's own format —
+      // straight into a request that only accepts ISO, failing every sync from
+      // then on.
+      if (old && old.updatedAt !== row.updatedAt) return row;
+
       // Everything below is a local write, so it also joins the queue of rows
       // owed to the server. Stamping alone was not enough: the stamp says when
       // the row changed, the queue says it has not been sent.
       queued.push(outboxKey(key, String(row.id)));
       if (!old) return { ...row, updatedAt: at };
-      if (old.updatedAt !== row.updatedAt) return row;
       changed = true;
       return { ...row, updatedAt: at };
+
     });
 
     // Rebuilt only when a stamp was actually added, so subscribers are not woken
@@ -476,7 +499,47 @@ export function outboxKey(collection: string, id: ID): string {
   return `${collection}:${id}`;
 }
 
+/** The same instant written as strict ISO, or null if it cannot be read. */
+function isoStamp(value: unknown): string | null {
+  if (typeof value !== 'string' || value === '') return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+/**
+ * Every stamp in the snapshot spelled the one way the API accepts.
+ *
+ * Rows keep an unreadable stamp rather than gaining a made-up one: the sync
+ * engine treats a missing stamp as ancient, which is honest, whereas stamping it
+ * now would claim this device holds the newest copy.
+ */
+function withIsoStamps(current: Database): Database {
+  const next: Database = { ...current };
+
+  for (const collection of SYNCED_COLLECTIONS) {
+    const rows = current[collection] as unknown as Array<Record<string, unknown>>;
+    let touched = false;
+
+    const repaired = rows.map((row) => {
+      const iso = isoStamp(row.updatedAt);
+      if (iso === null || iso === row.updatedAt) return row;
+      touched = true;
+      return { ...row, updatedAt: iso };
+    });
+
+    if (touched) (next[collection] as unknown) = repaired;
+  }
+
+  next.tombstones = current.tombstones.map((tombstone) => {
+    const iso = isoStamp(tombstone.deletedAt);
+    return iso === null || iso === tombstone.deletedAt ? tombstone : { ...tombstone, deletedAt: iso };
+  });
+
+  return next;
+}
+
 /** Every row and delete this device holds, queued, with no duplicates. */
+
 function withEverythingQueued(current: Database): string[] {
   const queued = new Set(current.outbox);
   for (const collection of SYNCED_COLLECTIONS) {

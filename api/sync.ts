@@ -73,12 +73,28 @@ const UPSERT = `
         deleted_at = EXCLUDED.deleted_at
   WHERE EXCLUDED.updated_at >= sync_rows.updated_at`;
 
+/**
+ * Timestamps go out as strict ISO-8601 with a `Z`, formatted in SQL rather than
+ * left to the driver.
+ *
+ * This is not cosmetic. Postgres renders a timestamptz as `2026-08-14 17:12:00+00`
+ * — a space, an offset, no `Z` — and that is what the HTTP endpoint handed back.
+ * The client stored those strings on the rows it pulled, and the moment one of
+ * them was pushed again the request failed validation, which asks for ISO. One
+ * pulled row was enough to make every later sync on that device fail with
+ * "Validation failed", so a laptop could pull an account and then never upload
+ * anything again.
+ */
+const ISO = `'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'`;
+const isoOf = (column: string): string =>
+  `to_char(${column} AT TIME ZONE 'UTC', ${ISO})`;
+
 const PULL = `
   SELECT collection,
-         row_id     AS "id",
+         row_id AS "id",
          data,
-         updated_at AS "updatedAt",
-         deleted_at AS "deletedAt"
+         ${isoOf('updated_at')} AS "updatedAt",
+         ${isoOf('deleted_at')} AS "deletedAt"
     FROM sync_rows
    WHERE user_id = $1
      AND ($2::timestamptz IS NULL OR updated_at > $2::timestamptz)
@@ -92,10 +108,11 @@ const PULL = `
  */
 const REJECTED = `
   SELECT s.collection,
-         s.row_id     AS "id",
+         s.row_id AS "id",
          s.data,
-         s.updated_at AS "updatedAt",
-         s.deleted_at AS "deletedAt"
+         ${isoOf('s.updated_at')} AS "updatedAt",
+         ${isoOf('s.deleted_at')} AS "deletedAt"
+
     FROM sync_rows s
     JOIN jsonb_to_recordset($2::jsonb)
       AS x(collection text, row_id uuid, updated_at timestamptz)

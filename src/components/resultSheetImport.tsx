@@ -336,7 +336,8 @@ export function ResultSheetImport({
           </p>
 
           {/* Scrolls sideways on a phone rather than pushing the page off screen. */}
-          <div className="-mx-1 overflow-x-auto px-1">
+          <div className="am-scroll-x">
+
             <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="text-left text-muted">

@@ -6,11 +6,28 @@
  * super-admin panel: no billing, infrastructure or database tooling.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ShieldAlert } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  BarChart3,
+  BookOpen,
+  CalendarCheck,
+  Flame,
+  GraduationCap,
+  Minus,
+  Share2,
+  ShieldAlert,
+  Sparkles,
+  Target,
+  TrendingDown,
+  UserPlus,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
 import type { FeatureFlags, FeedbackStatus } from '@shared/types';
-import { countEvents, daysAgoIso } from '@/lib/analytics';
+import { countEvents, dailyCounts, daysAgoIso, trend } from '@/lib/analytics';
 import {
   createAnnouncement,
   deleteAnnouncement,
@@ -21,6 +38,7 @@ import {
 } from '@/lib/actions';
 import { useSession } from '@/lib/hooks';
 import { useDb } from '@/lib/store';
+import { cn } from '@/lib/utils';
 import { Tabs } from '@/components/tabs';
 import {
   Badge,
@@ -30,7 +48,6 @@ import {
   Input,
   PageHeader,
   Select,
-  Stat,
   Toggle,
   useToast,
 } from '@/components/ui';
@@ -54,6 +71,145 @@ const FLAG_LABELS: Record<keyof FeatureFlags, string> = {
 
 const FEEDBACK_STATUSES: FeedbackStatus[] = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
 
+/* ------------------------------ presentation ------------------------------ */
+
+/**
+ * One number, with the two things that make a number mean something: what it
+ * measures, and which way it is moving.
+ *
+ * The dashboard was a grid of identical bordered boxes, each holding a label and
+ * a figure. Nothing stood out because nothing was distinguished — a hard zero
+ * read the same as a healthy count, and no card said whether this period had
+ * been better or worse than the one before it.
+ */
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  change,
+  tone = 'brand',
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number | string;
+  sub?: string;
+  /** Ratio against the previous period; null when there is nothing to compare. */
+  change?: number | null;
+  tone?: 'brand' | 'success' | 'warning' | 'muted';
+}) {
+  const tones = {
+    brand: 'bg-brand-soft text-brand',
+    success: 'bg-success/10 text-success',
+    warning: 'bg-warning/10 text-warning',
+    muted: 'bg-surface-2 text-muted',
+  } as const;
+
+  const rising = typeof change === 'number' && change > 0;
+  const falling = typeof change === 'number' && change < 0;
+  const percent = typeof change === 'number' ? `${Math.abs(Math.round(change * 100))}%` : null;
+
+  return (
+    <div className="am-card flex flex-col gap-3 px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <p className="min-w-0 text-sm font-medium text-muted">{label}</p>
+        <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-xl', tones[tone])}>
+          <Icon className="h-[18px] w-[18px]" aria-hidden />
+        </span>
+      </div>
+
+      <p className="tabular text-3xl font-semibold leading-none">{value}</p>
+
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+        {percent && (
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 font-medium',
+              rising && 'text-success',
+              falling && 'text-danger',
+            )}
+          >
+            {rising ? (
+              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+            ) : falling ? (
+              <TrendingDown className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <Minus className="h-3.5 w-3.5" aria-hidden />
+            )}
+            {percent}
+            <span className="font-normal text-muted">vs previous</span>
+          </span>
+        )}
+        {sub && <span>{sub}</span>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Daily activity as bars.
+ *
+ * Deliberately spare: the shape is the message — whether use is growing, flat or
+ * concentrated in a couple of days — and axis furniture at this size costs more
+ * room than it earns. Each bar carries its date and count as a tooltip, and the
+ * chart as a whole is described for assistive technology.
+ */
+function DailyBars({ series, label, days }: { series: number[]; label: string; days: number }) {
+  const peak = Math.max(1, ...series);
+  const total = series.reduce((sum, count) => sum + count, 0);
+
+  return (
+    <div>
+      <div
+        className="flex h-28 items-end gap-[3px]"
+        role="img"
+        aria-label={`${label}: ${total} over ${days} day${days === 1 ? '' : 's'}`}
+      >
+        {series.map((count, index) => (
+          <div
+            key={index}
+            title={`${new Date(Date.now() - (series.length - 1 - index) * 86_400_000)
+              .toDateString()
+              .slice(4)} — ${count}`}
+            className={cn(
+              'min-h-[3px] flex-1 rounded-t',
+              count === 0 ? 'bg-surface-2' : 'bg-brand/80',
+            )}
+            style={{ height: `${Math.max(3, (count / peak) * 100)}%` }}
+          />
+        ))}
+      </div>
+      <div className="mt-2 flex justify-between text-xs text-muted">
+        <span>{days === 1 ? 'Today' : `${days} days ago`}</span>
+        <span className="tabular">peak {peak}</span>
+        <span>Today</span>
+      </div>
+    </div>
+  );
+}
+
+/** A titled band of metrics, so twelve numbers read as three ideas. */
+function MetricSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mb-6">
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">{title}</h2>
+        {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{children}</div>
+    </section>
+  );
+}
+
+
 export default function Admin() {
   const { user, isOwner } = useSession();
   const toast = useToast();
@@ -65,7 +221,20 @@ export default function Admin() {
 
   const db = useDb((current) => current);
 
-  const since = daysAgoIso(Number(range));
+  const days = Number(range);
+  const since = daysAgoIso(days);
+  /*
+   * A chart of a single day is a single bar, which says nothing. The range picker
+   * governs the counters; the chart always shows at least a week of context.
+   */
+  const chartDays = Math.max(7, days);
+  const activity = useMemo(
+    () => dailyCounts(['app_opened', 'result_recorded', 'session_completed'], chartDays),
+    // The database object changes identity on every write, which is the signal
+    // that a recount is due.
+    [chartDays, db],
+  );
+
   const students = db.users.filter((row) => row.role !== 'OWNER');
   const profileOf = (userId: string) => db.profiles.find((row) => row.userId === userId);
 
@@ -160,20 +329,88 @@ export default function Admin() {
       />
 
       {tab === 'overview' && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Stat label="Registered students" value={students.length} tone="brand" />
-          <Stat label="New registrations" value={countEvents('registered', since)} />
-          <Stat
-            label="Onboarding completed"
-            value={onboarded}
-            sub={students.length > 0 ? `${Math.round((onboarded / students.length) * 100)}%` : '—'}
-          />
-          <Stat label="Active study streaks" value={activeStreaks} />
-          <Stat label="Courses created" value={countEvents('course_created', since)} />
-          <Stat label="Results recorded" value={countEvents('result_recorded', since)} />
-          <Stat label="Plans generated" value={countEvents('plan_generated', since)} />
-          <Stat label="Sessions completed" value={countEvents('session_completed', since)} />
-        </div>
+        <>
+          <MetricSection
+            title="Students"
+            description="Who has an account, and how far they got with setting it up."
+          >
+            <MetricCard
+              icon={Users}
+              label="Registered students"
+              value={students.length}
+              sub={`${students.filter((row) => row.status === 'ACTIVE').length} active`}
+            />
+            <MetricCard
+              icon={UserPlus}
+              label="New registrations"
+              value={countEvents('registered', since)}
+              change={trend('registered', days)}
+            />
+            <MetricCard
+              icon={Sparkles}
+              tone="success"
+              label="Onboarding completed"
+              value={onboarded}
+              sub={
+                students.length > 0
+                  ? `${Math.round((onboarded / students.length) * 100)}% of accounts`
+                  : 'no accounts yet'
+              }
+            />
+            <MetricCard
+              icon={Flame}
+              tone="warning"
+              label="Active study streaks"
+              value={activeStreaks}
+              sub="studied in the last two days"
+            />
+          </MetricSection>
+
+          <MetricSection
+            title="Work recorded"
+            description="What students actually did with AcadMap in this period."
+          >
+            <MetricCard
+              icon={BookOpen}
+              label="Courses created"
+              value={countEvents('course_created', since)}
+              change={trend('course_created', days)}
+            />
+            <MetricCard
+              icon={GraduationCap}
+              label="Results recorded"
+              value={countEvents('result_recorded', since)}
+              change={trend('result_recorded', days)}
+            />
+            <MetricCard
+              icon={CalendarCheck}
+              label="Plans generated"
+              value={countEvents('plan_generated', since)}
+              change={trend('plan_generated', days)}
+            />
+            <MetricCard
+              icon={Target}
+              label="Sessions completed"
+              value={countEvents('session_completed', since)}
+              change={trend('session_completed', days)}
+            />
+          </MetricSection>
+
+          <Card
+            title="Daily activity"
+            description="App opens, results recorded and sessions completed, by day."
+          >
+            {activity.every((count) => count === 0) ? (
+              <EmptyState
+                icon={<BarChart3 className="h-6 w-6" />}
+                title="No activity recorded yet"
+                description="Counts appear here as students open the app and record their work. Analytics are stored on this device, so a fresh browser starts empty."
+              />
+            ) : (
+              <DailyBars series={activity} label="Daily activity" days={chartDays} />
+            )}
+          </Card>
+        </>
       )}
 
       {tab === 'users' && (
@@ -187,8 +424,10 @@ export default function Admin() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-sm">
+          {/* Seven columns of support detail: scrolled, never squeezed. */}
+          <div className="am-scroll-x mt-4">
+            <table className="w-full min-w-[760px] text-sm">
+
               <thead className="text-left text-muted">
                 <tr>
                   <th className="py-2 pr-4 font-medium">Student</th>
@@ -278,21 +517,101 @@ export default function Admin() {
       )}
 
       {tab === 'analytics' && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Stat label="App opens" value={countEvents('app_opened', since)} />
-          <Stat label="GPA calculations" value={countEvents('gpa_calculated', since)} />
-          <Stat label="Registrations" value={countEvents('registered', since)} />
-          <Stat label="Onboardings" value={countEvents('onboarding_completed', since)} />
-          <Stat label="Courses created" value={countEvents('course_created', since)} />
-          <Stat label="Results entered" value={countEvents('result_recorded', since)} />
-          <Stat label="Plans generated" value={countEvents('plan_generated', since)} />
-          <Stat label="Sessions completed" value={countEvents('session_completed', since)} />
-          <Stat label="Sessions skipped" value={countEvents('session_skipped', since)} />
-          <Stat label="Snapshots created" value={countEvents('snapshot_created', since)} />
-          <Stat label="Active goals" value={db.goals.filter((goal) => !goal.achievedAt).length} />
-          <Stat label="Scheduled sessions" value={db.sessions.filter((s) => s.status === 'SCHEDULED').length} />
-        </div>
+        <>
+          <MetricSection title="Engagement" description="Coming back, and using the tools.">
+            <MetricCard
+              icon={BarChart3}
+              label="App opens"
+              value={countEvents('app_opened', since)}
+              change={trend('app_opened', days)}
+            />
+            <MetricCard
+              icon={GraduationCap}
+              label="GPA calculations"
+              value={countEvents('gpa_calculated', since)}
+              change={trend('gpa_calculated', days)}
+            />
+            <MetricCard
+              icon={UserPlus}
+              label="Registrations"
+              value={countEvents('registered', since)}
+              change={trend('registered', days)}
+            />
+            <MetricCard
+              icon={Sparkles}
+              label="Onboardings"
+              value={countEvents('onboarding_completed', since)}
+              change={trend('onboarding_completed', days)}
+            />
+          </MetricSection>
+
+          <MetricSection title="Academic work" description="Records a student keeps up to date.">
+            <MetricCard
+              icon={BookOpen}
+              label="Courses created"
+              value={countEvents('course_created', since)}
+              change={trend('course_created', days)}
+            />
+            <MetricCard
+              icon={GraduationCap}
+              label="Results entered"
+              value={countEvents('result_recorded', since)}
+              change={trend('result_recorded', days)}
+            />
+            <MetricCard
+              icon={Share2}
+              label="Snapshots shared"
+              value={countEvents('snapshot_created', since)}
+              change={trend('snapshot_created', days)}
+            />
+            <MetricCard
+              icon={Target}
+              tone="muted"
+              label="Active goals"
+              value={db.goals.filter((goal) => !goal.achievedAt).length}
+              sub="open right now"
+            />
+          </MetricSection>
+
+          <MetricSection
+            title="Planning"
+            description="Whether a generated plan turns into study that happens."
+          >
+            <MetricCard
+              icon={CalendarCheck}
+              label="Plans generated"
+              value={countEvents('plan_generated', since)}
+              change={trend('plan_generated', days)}
+            />
+            <MetricCard
+              icon={Target}
+              tone="success"
+              label="Sessions completed"
+              value={countEvents('session_completed', since)}
+              change={trend('session_completed', days)}
+            />
+            <MetricCard
+              icon={Minus}
+              tone="warning"
+              label="Sessions skipped"
+              value={countEvents('session_skipped', since)}
+              change={trend('session_skipped', days)}
+            />
+            <MetricCard
+              icon={CalendarCheck}
+              tone="muted"
+              label="Scheduled sessions"
+              value={db.sessions.filter((session) => session.status === 'SCHEDULED').length}
+              sub="still ahead"
+            />
+          </MetricSection>
+
+          <Card title="Daily activity" description="The same series as the overview, for reference.">
+            <DailyBars series={activity} label="Daily activity" days={chartDays} />
+          </Card>
+        </>
       )}
+
 
       {tab === 'institutions' && (
         <Card title="Institutions" description="Aggregated counts only — no individual records.">
