@@ -381,6 +381,46 @@ CREATE INDEX IF NOT EXISTS share_snapshots_live_idx
 /* Feedback is listed per student in the app and by status in the admin UI. */
 CREATE INDEX IF NOT EXISTS feedback_user_idx ON feedback(user_id, created_at DESC);
 
+/* ---------------------------------------------------------------------------
+ * Cross-device sync
+ *
+ * A student's academic data is created on their device — offline included — and
+ * replicated here so a phone and a laptop show the same account. Each row is
+ * stored as it exists on the client, keyed by the client-generated UUID, with
+ * the two timestamps the merge engine needs.
+ *
+ * Why a row store rather than writing straight into the normalised tables
+ * above: sync needs per-row `updated_at` and replicable deletes for fourteen
+ * collections, and the reconciliation logic must be identical on both sides
+ * (see shared/sync.ts). One table keeps the server side small enough to reason
+ * about and means a new synced collection needs no migration. The normalised
+ * tables continue to serve the features that query by column — the admin
+ * overview, shared snapshots, profiles.
+ *
+ * `data` holds the row exactly as the client stores it. It is never trusted for
+ * ownership: `user_id` comes from the session, never from the payload.
+ * ------------------------------------------------------------------------ */
+CREATE TABLE IF NOT EXISTS sync_rows (
+  user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  collection  TEXT        NOT NULL,
+  row_id      UUID        NOT NULL,
+  data        JSONB       NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL,
+  /* Non-null marks a delete. Kept as a tombstone so a device that has been
+   * offline learns about it instead of pushing the row back. */
+  deleted_at  TIMESTAMPTZ,
+  PRIMARY KEY (user_id, collection, row_id)
+);
+
+/* Every pull is "everything of mine that changed since X". */
+CREATE INDEX IF NOT EXISTS sync_rows_pull_idx ON sync_rows(user_id, updated_at);
+
+/* Lets tombstone pruning find expired markers without scanning live rows. */
+CREATE INDEX IF NOT EXISTS sync_rows_tombstone_idx
+  ON sync_rows(deleted_at)
+  WHERE deleted_at IS NOT NULL;
+
+
 COMMIT;
 
 /* -------------------------------------------------------------------------- */

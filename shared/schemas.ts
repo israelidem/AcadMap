@@ -294,3 +294,57 @@ export type AnnouncementInput = z.infer<typeof announcementSchema>;
 export type AcademicYearInput = z.infer<typeof academicYearSchema>;
 export type TermInput = z.infer<typeof termSchema>;
 export type GradingSystemInput = z.infer<typeof gradingSystemSchema>;
+
+/* ---------------------------------- sync ---------------------------------- */
+
+/** The collections a device is allowed to sync. Anything else is rejected. */
+export const SYNC_COLLECTIONS = [
+  'gradingSystems',
+  'academicYears',
+  'terms',
+  'courses',
+  'topics',
+  'results',
+  'events',
+  'tasks',
+  'availability',
+  'sessions',
+  'goals',
+  'snapshots',
+  'notifications',
+  'feedback',
+] as const;
+
+const uuidSchema = z.string().uuid();
+
+export const syncRowSchema = z.object({
+  collection: z.enum(SYNC_COLLECTIONS),
+  id: uuidSchema,
+  /**
+   * The row as the client stores it. Deliberately opaque — the server replicates
+   * academic data, it does not interpret it — but capped so one device cannot
+   * push an unbounded document.
+   */
+  data: z.record(z.unknown()),
+  updatedAt: z.string().datetime(),
+  deletedAt: z.string().datetime().nullable().default(null),
+});
+
+export const syncRequestSchema = z.object({
+  /**
+   * When this device last completed a sync. The server returns everything that
+   * changed after it; null asks for the whole account, which is what a new
+   * device needs.
+   */
+  since: z.string().datetime().nullable(),
+  /**
+   * Rows this device has that the server may not. Bounded so a first sync of a
+   * long history arrives in batches rather than one request that times out.
+   */
+  rows: z.array(syncRowSchema).max(500),
+});
+
+export type SyncRowInput = z.infer<typeof syncRowSchema>;
+export type SyncRequestInput = z.infer<typeof syncRequestSchema>;
+
+
