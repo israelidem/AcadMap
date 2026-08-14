@@ -1,7 +1,7 @@
 /** Academic years, terms and recorded results with term GPA / CGPA. */
 
 import { useMemo, useState } from 'react';
-import { CalendarPlus, GraduationCap, Plus, Trash2 } from 'lucide-react';
+import { CalendarPlus, FileUp, GraduationCap, Plus, Trash2 } from 'lucide-react';
 import { cgpa, round, termGpa } from '@shared/gpa';
 import { maxPoint } from '@shared/grading';
 import type { Course, Result } from '@shared/types';
@@ -15,6 +15,8 @@ import {
   updateTerm,
 } from '@/lib/actions';
 import { useGradingSystem, useSession, useUserData } from '@/lib/hooks';
+import { ResultSheetImport } from '@/components/resultSheetImport';
+
 import {
   Badge,
   Button,
@@ -303,6 +305,12 @@ function ResultModal({
   const [countsInGpa, setCountsInGpa] = useState(true);
   const [isRepeat, setIsRepeat] = useState(false);
   const [replacesResultId, setReplacesResultId] = useState('');
+  /*
+   * One result at a time, or a whole sheet at once. They share this modal because
+   * they are the same decision — "record what I got" — and a student who opens the
+   * wrong one should be able to switch without losing their place.
+   */
+  const [mode, setMode] = useState<'manual' | 'sheet'>('manual');
 
   if (!user || !termId) return null;
 
@@ -354,17 +362,38 @@ function ResultModal({
     <Modal
       open
       onClose={onClose}
-      title="Record result"
+      title={mode === 'sheet' ? 'Upload result sheet' : 'Record result'}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={save}>Save result</Button>
+          {mode === 'manual' && <Button onClick={save}>Save result</Button>}
         </>
       }
     >
+      {mode === 'sheet' ? (
+        <div className="grid gap-4">
+          <Button variant="ghost" onClick={() => setMode('manual')}>
+            Enter one result by hand instead
+          </Button>
+          <ResultSheetImport
+            userId={user.id}
+            termId={termId}
+            system={system}
+            courses={termCourses}
+            onDone={() => {
+              setMode('manual');
+              onClose();
+            }}
+          />
+        </div>
+      ) : (
       <div className="grid gap-4">
+        <Button variant="secondary" onClick={() => setMode('sheet')}>
+          <FileUp className="h-4 w-4" aria-hidden />
+          Upload a result sheet instead
+        </Button>
         {termCourses.length > 0 && (
           <Select label="From a course in this term" value={courseId} onChange={(event) => pickCourse(event.target.value)}>
             <option value="">Enter manually…</option>
@@ -417,6 +446,7 @@ function ResultModal({
           </Select>
         )}
       </div>
+      )}
     </Modal>
   );
 }
