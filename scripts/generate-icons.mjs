@@ -1,162 +1,116 @@
 /**
- * Generates the PWA icon set from code — no binary assets in git, no image
- * dependency, and the brand colour lives in exactly one place.
+ * Generates the favicon and PWA icon set from the real logo.
  *
  *   node scripts/generate-icons.mjs
  *
- * Writes public/icon-192.png, icon-512.png, icon-maskable-512.png and
- * apple-touch-icon.png: a rounded brand-coloured tile with a white "A".
+ * Source: public/logo.png — the brand mark, square and with transparency. Every
+ * other icon in public/ is derived from it, so the logo is replaced in one place
+ * and the whole set is regenerated rather than edited by hand and drifting.
+ *
+ * Two kinds of output, because platforms treat them differently:
+ *
+ *   favicon-16/32, icon-192, icon-512, apple-touch-icon
+ *       The mark, edge to edge apart from a little breathing room. Apple's is
+ *       flattened onto the brand background because iOS composites the home
+ *       screen icon on nothing — transparency there shows as black.
+ *   icon-maskable-512
+ *       Android may crop this to a circle, so the mark is inset to 60% of the
+ *       canvas: everything outside the middle 80% can be cut away, and a mark
+ *       that filled the square would lose its corners.
+ *
+ * `sharp` is a devDependency: this runs before a build, never in the browser or
+ * on the server.
  */
 
-import { deflateSync } from 'node:zlib';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 
-const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
+const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
+const SOURCE = join(PUBLIC_DIR, 'logo.png');
 
-const BRAND = [15, 23, 42]; // slate-900, matches the theme-color meta tag
-const INK = [255, 255, 255];
+/** slate-900, the same colour as the dark theme-color meta tag. */
+const BRAND = { r: 15, g: 23, b: 42, alpha: 1 };
+const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
 
-/** Signed distance from point (x, y) to the segment (x1, y1)–(x2, y2). */
-function distanceToSegment(x, y, x1, y1, x2, y2) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const lengthSquared = dx * dx + dy * dy;
-  const t = lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, ((x - x1) * dx + (y - y1) * dy) / lengthSquared));
-  return Math.hypot(x - (x1 + t * dx), y - (y1 + t * dy));
+/**
+ * One icon.
+ *
+ * `coverage` is how much of the canvas the mark occupies; the rest is padding,
+ * added by `contain` so a non-square logo would still not be distorted.
+ */
+async function icon({ name, size, coverage = 0.92, background = TRANSPARENT }) {
+  const inner = Math.round(size * coverage);
+  const pad = Math.round((size - inner) / 2);
+
+  const mark = await sharp(SOURCE)
+    .resize(inner, inner, { fit: 'contain', background: TRANSPARENT })
+    .toBuffer();
+
+  const buffer = await sharp({
+    create: { width: size, height: size, channels: 4, background },
+  })
+    .composite([{ input: mark, top: pad, left: pad }])
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+
+  writeFileSync(join(PUBLIC_DIR, name), buffer);
+  return { name, bytes: buffer.length };
 }
 
 /**
- * Coverage of the glyph at a pixel, in 0..1. Sampled 3×3 per pixel so the
- * diagonals come out smooth instead of jagged.
+ * An .ico holding the 16 and 32 pixel PNGs.
+ *
+ * Written by hand because it is a 22-byte header plus the PNGs themselves, and
+ * `/favicon.ico` is still requested by browsers and crawlers that ignore the
+ * link tags. Not worth a dependency.
  */
-function glyphCoverage(px, py, size, stroke) {
-  // "A" as three strokes, laid out on a 0..1 box inset from the tile edges.
-  const inset = size * 0.28;
-  const top = size * 0.24;
-  const bottom = size - size * 0.24;
-  const apexX = size / 2;
-  const legs = [
-    [apexX, top, inset, bottom],
-    [apexX, top, size - inset, bottom],
-    // Crossbar, pulled in so it meets the legs rather than overhanging.
-    [size * 0.355, size * 0.66, size * 0.645, size * 0.66],
-  ];
+function ico(name, entries) {
+  const header = Buffer.alloc(6 + entries.length * 16);
+  header.writeUInt16LE(0, 0); // reserved
+  header.writeUInt16LE(1, 2); // type: icon
+  header.writeUInt16LE(entries.length, 4);
 
-  let hits = 0;
-  for (let sy = 0; sy < 3; sy += 1) {
-    for (let sx = 0; sx < 3; sx += 1) {
-      const x = px + (sx + 0.5) / 3;
-      const y = py + (sy + 0.5) / 3;
-      const inGlyph = legs.some(
-        ([x1, y1, x2, y2]) => distanceToSegment(x, y, x1, y1, x2, y2) <= stroke / 2,
-      );
-      if (inGlyph) hits += 1;
-    }
-  }
-  return hits / 9;
+  let offset = header.length;
+  entries.forEach(({ size, data }, index) => {
+    const at = 6 + index * 16;
+    header.writeUInt8(size >= 256 ? 0 : size, at); // 0 means 256
+    header.writeUInt8(size >= 256 ? 0 : size, at + 1);
+    header.writeUInt8(0, at + 2); // palette
+    header.writeUInt8(0, at + 3); // reserved
+    header.writeUInt16LE(1, at + 4); // colour planes
+    header.writeUInt16LE(32, at + 6); // bits per pixel
+    header.writeUInt32LE(data.length, at + 8);
+    header.writeUInt32LE(offset, at + 12);
+    offset += data.length;
+  });
+
+  const buffer = Buffer.concat([header, ...entries.map((entry) => entry.data)]);
+  writeFileSync(join(PUBLIC_DIR, name), buffer);
+  return { name, bytes: buffer.length };
 }
 
-/** Coverage of the rounded tile itself, so the corners are anti-aliased too. */
-function tileCoverage(px, py, size, radius) {
-  let hits = 0;
-  for (let sy = 0; sy < 3; sy += 1) {
-    for (let sx = 0; sx < 3; sx += 1) {
-      const x = px + (sx + 0.5) / 3;
-      const y = py + (sy + 0.5) / 3;
-      const cx = Math.min(Math.max(x, radius), size - radius);
-      const cy = Math.min(Math.max(y, radius), size - radius);
-      if (Math.hypot(x - cx, y - cy) <= radius) hits += 1;
-    }
-  }
-  return hits / 9;
-}
+const written = [];
 
-function mix(from, to, amount) {
-  return Math.round(from + (to - from) * amount);
-}
+written.push(await icon({ name: 'favicon-16.png', size: 16, coverage: 1 }));
+written.push(await icon({ name: 'favicon-32.png', size: 32, coverage: 1 }));
+written.push(await icon({ name: 'icon-192.png', size: 192 }));
+written.push(await icon({ name: 'icon-512.png', size: 512 }));
+written.push(
+  await icon({ name: 'icon-maskable-512.png', size: 512, coverage: 0.6, background: BRAND }),
+);
+written.push(
+  await icon({ name: 'apple-touch-icon.png', size: 180, coverage: 0.86, background: BRAND }),
+);
 
-/**
- * @param size    pixel dimensions of the square icon
- * @param maskable when true the glyph shrinks into the safe zone and the tile
- *                 is a full-bleed square, as Android's mask requires
- */
-function renderIcon(size, maskable) {
-  const scale = maskable ? 0.66 : 1; // safe zone for maskable icons
-  const radius = maskable ? 0 : size * 0.22;
-  const stroke = size * scale * 0.11;
-  const offset = (size - size * scale) / 2;
+written.push(
+  ico('favicon.ico', [
+    { size: 16, data: readFileSync(join(PUBLIC_DIR, 'favicon-16.png')) },
+    { size: 32, data: readFileSync(join(PUBLIC_DIR, 'favicon-32.png')) },
+  ]),
+);
 
-  const pixels = Buffer.alloc(size * size * 4);
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const tile = maskable ? 1 : tileCoverage(x, y, size, radius);
-      const glyph = glyphCoverage(x - offset, y - offset, size * scale, stroke);
-      const index = (y * size + x) * 4;
-      pixels[index] = mix(BRAND[0], INK[0], glyph);
-      pixels[index + 1] = mix(BRAND[1], INK[1], glyph);
-      pixels[index + 2] = mix(BRAND[2], INK[2], glyph);
-      pixels[index + 3] = Math.round(tile * 255);
-    }
-  }
-  return pixels;
-}
-
-function crc32(buffer) {
-  let crc = 0xffffffff;
-  for (const byte of buffer) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) {
-      crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function chunk(type, data) {
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length);
-  const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(body));
-  return Buffer.concat([length, body, crc]);
-}
-
-/** Minimal 8-bit RGBA PNG encoder (filter type 0 on every scanline). */
-function encodePng(pixels, size) {
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(size, 0);
-  header.writeUInt32BE(size, 4);
-  header[8] = 8; // bit depth
-  header[9] = 6; // colour type: RGBA
-  // 10..12 stay zero: deflate, adaptive filtering, no interlacing.
-
-  const stride = size * 4;
-  const raw = Buffer.alloc((stride + 1) * size);
-  for (let y = 0; y < size; y += 1) {
-    raw[y * (stride + 1)] = 0;
-    pixels.copy(raw, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
-  }
-
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk('IHDR', header),
-    chunk('IDAT', deflateSync(raw, { level: 9 })),
-    chunk('IEND', Buffer.alloc(0)),
-  ]);
-}
-
-mkdirSync(OUT_DIR, { recursive: true });
-
-const targets = [
-  { file: 'icon-192.png', size: 192, maskable: false },
-  { file: 'icon-512.png', size: 512, maskable: false },
-  { file: 'icon-maskable-512.png', size: 512, maskable: true },
-  { file: 'apple-touch-icon.png', size: 180, maskable: false },
-];
-
-for (const { file, size, maskable } of targets) {
-  writeFileSync(join(OUT_DIR, file), encodePng(renderIcon(size, maskable), size));
-  console.log(`public/${file} (${size}×${size})`);
+for (const { name, bytes } of written) {
+  console.log(`${name.padEnd(24)} ${(bytes / 1024).toFixed(1)} kB`);
 }

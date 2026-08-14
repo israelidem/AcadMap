@@ -7,7 +7,8 @@
 
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, GraduationCap, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Plus, Trash2 } from 'lucide-react';
+import { LogoMark } from '@/components/brand';
 import { PRESET_4_RULES, PRESET_5_RULES, PRESET_GRADING_SYSTEMS } from '@shared/grading';
 import { profileSchema } from '@shared/schemas';
 import type { TermStructure } from '@shared/types';
@@ -176,7 +177,8 @@ export default function Onboarding() {
     <div className="min-h-dvh bg-bg">
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-3 font-semibold">
-          <GraduationCap className="h-6 w-6 text-brand" />
+          <LogoMark />
+
           Academic setup
         </div>
       </header>

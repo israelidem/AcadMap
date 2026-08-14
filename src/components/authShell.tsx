@@ -2,7 +2,8 @@
 
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { GraduationCap } from 'lucide-react';
+import { LogoMark } from './brand';
+
 
 export function AuthShell({
   title,
@@ -19,7 +20,8 @@ export function AuthShell({
     <div className="flex min-h-dvh flex-col bg-bg">
       <header className="mx-auto w-full max-w-6xl px-4 py-4">
         <Link to="/" className="inline-flex items-center gap-2 font-semibold">
-          <GraduationCap className="h-6 w-6 text-brand" />
+          <LogoMark />
+
           AcadMap
         </Link>
       </header>

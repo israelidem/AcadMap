@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { GraduationCap } from 'lucide-react';
+import { LogoMark } from '@/components/brand';
 import type { ShareField } from '@shared/types';
 import { findSnapshotByToken, recordSnapshotView } from '@/lib/actions';
 import { Badge, Button, Card } from '@/components/ui';
@@ -35,7 +35,8 @@ export default function SharedSnapshot() {
     <main className="mx-auto grid min-h-dvh w-full max-w-lg place-items-center px-4 py-10">
       <div className="w-full">
         <Link to="/" className="mb-6 flex items-center justify-center gap-2 font-semibold">
-          <GraduationCap className="h-5 w-5 text-brand" />
+          <LogoMark className="h-5 w-5" />
+
           AcadMap
         </Link>
 

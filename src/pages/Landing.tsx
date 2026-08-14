@@ -6,11 +6,12 @@ import {
   CalendarDays,
   Calculator as CalculatorIcon,
   Flame,
-  GraduationCap,
+
   Share2,
   Target,
 } from 'lucide-react';
 import { Button } from '@/components/ui';
+import { LogoMark } from '@/components/brand';
 import { useTheme } from '@/lib/theme';
 
 const FEATURES = [
@@ -53,7 +54,8 @@ export default function Landing() {
     <div className="min-h-dvh bg-bg">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
         <div className="flex items-center gap-2 font-semibold">
-          <GraduationCap className="h-6 w-6 text-brand" />
+          <LogoMark />
+
           AcadMap
         </div>
         <div className="flex items-center gap-2">

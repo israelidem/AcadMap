@@ -208,10 +208,19 @@ async function run(): Promise<void> {
       error instanceof ApiError
         ? error.isOffline
           ? null // Offline is not a failure worth showing; it will retry.
-          : error.message
+          : error.status === 401
+            ? // Signed in on this device but not with the server: the account was
+              // created here before AcadMap kept accounts, so there is no server
+              // session to sync with and no way to make one without the password.
+              // Saying "unauthorised" would be useless; this says what to do.
+              'This device is signed in, but the account has not been set up on ' +
+              'AcadMap yet, so nothing can sync. Sign out and sign in again with ' +
+              'the same details to finish setting it up — your work stays where it is.'
+            : error.message
         : 'Sync could not finish. It will try again shortly.';
     setState({ running: false, error: message });
   }
+
 }
 
 /** One request/response. Returns true when the account is fully caught up. */

@@ -19,7 +19,9 @@ import { DEFAULT_PREFERENCES, getDatabase, update } from './store';
 import { nowIso, uid } from './utils';
 import { trackEvent } from './analytics';
 import { ApiError, api, type SessionUser } from './api';
-import { syncNow } from './sync';
+import { forgetSyncState, syncNow } from './sync';
+import { rekeyIds } from './rekey';
+
 
 
 const PBKDF2_ITERATIONS = 100_000;
@@ -169,6 +171,61 @@ function serverSpoke(error: unknown): error is ApiError {
   return error instanceof ApiError && !error.isOffline;
 }
 
+/**
+ * Claims an account that only ever existed on this device.
+ *
+ * Students who signed up before AcadMap kept accounts on the server have a real
+ * account with real work in it, and an id this browser invented. The server has
+ * never heard of them, so it rightly rejects the sign-in — and no amount of
+ * retrying will help, because the password cannot be replayed from the PBKDF2
+ * hash the device stored.
+ *
+ * So the moment the password is typed correctly is the only moment the account
+ * can be handed over, and this takes it: the typed password is checked against
+ * this device's own credential first — which is what proves the person owns the
+ * local account rather than merely knowing the address — and only then is the
+ * account registered for real. The device's rows are then moved onto the id the
+ * server issued and the sync watermark is cleared so all of them upload as new.
+ *
+ * Returns `null` when there is nothing to claim, leaving the server's original
+ * answer to stand. In particular a `409` means somebody already holds that
+ * address on the server, and then the failed sign-in was simply a failed
+ * sign-in: saying "email already taken" there would be both confusing and a way
+ * to enumerate accounts.
+ */
+async function claimLocalAccount(email: string, password: string): Promise<AuthResult | null> {
+  const db = getDatabase();
+  const local = db.users.find((u) => u.email === email);
+  const credential = local ? db.credentials.find((c) => c.userId === local.id) : undefined;
+  if (!local || !credential) return null;
+  if (local.status !== 'ACTIVE') return null;
+
+  const hash = await hashPassword(password, credential.salt);
+  if (!safeEqual(hash, credential.hash)) return null;
+
+  const fullName = db.profiles.find((p) => p.userId === local.id)?.fullName ?? '';
+
+  let serverUser: SessionUser;
+  try {
+    ({ user: serverUser } = await api.register({ email, password, fullName }));
+  } catch (error) {
+    if (error instanceof ApiError && error.status !== 409) {
+      return { ok: false, error: error.message };
+    }
+    return null;
+  }
+
+  update((current) => rekeyIds(current, local.id, serverUser.id));
+  // Both watermarks go: the old id will never be used again, and the new id must
+  // start from nothing so every re-keyed row counts as a change to upload.
+  forgetSyncState(local.id);
+  forgetSyncState(serverUser.id);
+
+  await mirrorAccount(serverUser, password, fullName);
+  trackEvent('app_opened', serverUser.id);
+  return { ok: true, userId: serverUser.id };
+}
+
 export async function register(
   email: string,
   password: string,
@@ -256,10 +313,15 @@ export async function login(email: string, password: string): Promise<AuthResult
     trackEvent('app_opened', user.id);
     return { ok: true, userId: user.id };
   } catch (error) {
-    if (serverSpoke(error)) return { ok: false, error: error.message };
+    if (serverSpoke(error)) {
+      // The details may be right and the account simply older than the server.
+      const claimed = await claimLocalAccount(normalized, password);
+      return claimed ?? { ok: false, error: error.message };
+    }
   }
 
   /* ---- offline: fall back to the credential this device stored ---- */
+
 
   const db = getDatabase();
   const user = db.users.find((u) => u.email === normalized);

@@ -29,7 +29,8 @@ function showBrowser(title: string, body: string, tag?: string): void {
   try {
     // `tag` lets the browser collapse a repeat of the same item rather than
     // stacking duplicates in the tray.
-    new Notification(title, { body, icon: '/favicon.svg', tag });
+    new Notification(title, { body, icon: '/icon-192.png', tag });
+
   } catch {
     // Some browsers block constructing notifications outside a service worker.
   }

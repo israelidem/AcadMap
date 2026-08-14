@@ -22,6 +22,8 @@ import { logout } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
 import { cn, initials } from '@/lib/utils';
 import { Badge, Button, Modal } from './ui';
+import { LogoMark } from './brand';
+
 import { NotificationBell } from './notifications';
 import { FeedbackForm } from './feedback';
 
@@ -71,9 +73,10 @@ export function AppLayout() {
       <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5">
           <Link to="/app" className="flex items-center gap-2 font-semibold">
-            <GraduationCap className="h-6 w-6 text-brand" />
+            <LogoMark />
             <span>AcadMap</span>
           </Link>
+
 
           <nav className="ml-4 hidden flex-1 items-center gap-1 lg:flex">
             {PRIMARY.map(({ to, label, end }) => (

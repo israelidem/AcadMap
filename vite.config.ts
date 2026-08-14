@@ -13,7 +13,8 @@ export default defineConfig({
       // Installable, offline-capable shell. The guest GPA calculator is pure
       // client-side maths, so it keeps working with no connection at all.
       registerType: 'prompt',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.ico', 'favicon-32.png', 'apple-touch-icon.png', 'logo.png'],
+
       manifest: {
         name: 'AcadMap — Your academic operating system',
         short_name: 'AcadMap',
