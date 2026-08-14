@@ -33,8 +33,6 @@ import {
   track,
 } from './_lib/http';
 
-export const config = { runtime: 'edge' };
-
 /** Rewrites a bundle-local id to the UUID we inserted for it. */
 type IdMap = Map<string, string>;
 

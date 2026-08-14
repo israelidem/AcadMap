@@ -13,36 +13,102 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 /* -------------------------------------------------------------------------- */
-/* Accounts                                                                   */
+/* Accounts — owned by Better Auth                                            */
 /* -------------------------------------------------------------------------- */
 
-CREATE TABLE IF NOT EXISTS users (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email         TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  role          TEXT NOT NULL DEFAULT 'STUDENT' CHECK (role IN ('STUDENT', 'OWNER')),
-  status        TEXT NOT NULL DEFAULT 'ACTIVE'  CHECK (status IN ('ACTIVE', 'SUSPENDED', 'DELETED')),
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_seen_at  TIMESTAMPTZ
+/*
+ * These four tables are Better Auth's, not ours.
+ *
+ * Their names and columns are dictated by the library (quoted camelCase, `user`
+ * singular and reserved, so it must stay quoted everywhere). They are written out
+ * here rather than left to `better-auth migrate` so that one file still describes
+ * the whole database and `npm run db:push` remains the only step needed to stand
+ * one up. The definitions match `getAuthTables()` for better-auth 1.6; if that
+ * version is raised, re-check them.
+ *
+ * Do not add application columns here beyond the three declared as
+ * `additionalFields` in api/_lib/auth.ts — Better Auth writes this row itself and
+ * a column it does not know about must be nullable or defaulted, or sign-up fails.
+ *
+ * The old hand-rolled `users`, `sessions` and `password_resets` tables are gone.
+ * Sessions and reset tokens now live in `session` and `verification`, managed by
+ * the library, which is the point of the change: no application code decides when
+ * a session is valid.
+ */
+
+CREATE TABLE IF NOT EXISTS "user" (
+  "id"            TEXT PRIMARY KEY,
+  "name"          TEXT NOT NULL,
+  "email"         TEXT NOT NULL UNIQUE,
+  "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+  "image"         TEXT,
+  "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  /* Application fields, declared as additionalFields in api/_lib/auth.ts. */
+  "role"          TEXT NOT NULL DEFAULT 'STUDENT' CHECK ("role" IN ('STUDENT', 'OWNER')),
+  "status"        TEXT NOT NULL DEFAULT 'ACTIVE'  CHECK ("status" IN ('ACTIVE', 'SUSPENDED', 'DELETED')),
+  "lastSeenAt"    TIMESTAMPTZ
 );
 
-CREATE TABLE IF NOT EXISTS sessions (
-  token      TEXT PRIMARY KEY,
-  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS "session" (
+  "id"        TEXT PRIMARY KEY,
+  "expiresAt" TIMESTAMPTZ NOT NULL,
+  "token"     TEXT NOT NULL UNIQUE,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "ipAddress" TEXT,
+  "userAgent" TEXT,
+  "userId"    TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS session_user_idx ON "session"("userId");
+CREATE INDEX IF NOT EXISTS session_expires_idx ON "session"("expiresAt");
 
-CREATE TABLE IF NOT EXISTS password_resets (
-  token      TEXT PRIMARY KEY,
-  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  expires_at TIMESTAMPTZ NOT NULL,
-  used_at    TIMESTAMPTZ
+/*
+ * One row per way of signing in. Email/password accounts keep the hash in
+ * `password`; a social provider added later stores its tokens in the same row
+ * shape, which is why the column list looks larger than email/password needs.
+ */
+CREATE TABLE IF NOT EXISTS "account" (
+  "id"                    TEXT PRIMARY KEY,
+  "accountId"             TEXT NOT NULL,
+  "providerId"            TEXT NOT NULL,
+  "userId"                TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
+  "accessToken"           TEXT,
+  "refreshToken"          TEXT,
+  "idToken"               TEXT,
+  "accessTokenExpiresAt"  TIMESTAMPTZ,
+  "refreshTokenExpiresAt" TIMESTAMPTZ,
+  "scope"                 TEXT,
+  "password"              TEXT,
+  "createdAt"             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "updatedAt"             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS account_user_idx ON "account"("userId");
+
+/* Short-lived tokens: password reset today, email verification when enabled. */
+CREATE TABLE IF NOT EXISTS "verification" (
+  "id"         TEXT PRIMARY KEY,
+  "identifier" TEXT NOT NULL,
+  "value"      TEXT NOT NULL,
+  "expiresAt"  TIMESTAMPTZ NOT NULL,
+  "createdAt"  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "updatedAt"  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS verification_identifier_idx ON "verification"("identifier");
+
+/* -------------------------------------------------------------------------- */
+/* Student data                                                               */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Every table below keys on `"user"."id"`, which is TEXT: Better Auth generates
+ * its own ids, so nothing here is a UUID any more. All of them cascade, so
+ * deleting the account really does delete the account.
+ */
 
 CREATE TABLE IF NOT EXISTS profiles (
-  user_id                  UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  user_id                  TEXT PRIMARY KEY REFERENCES "user"("id") ON DELETE CASCADE,
+
   full_name                TEXT NOT NULL DEFAULT '',
   institution              TEXT NOT NULL DEFAULT '',
   faculty                  TEXT NOT NULL DEFAULT '',
@@ -57,7 +123,7 @@ CREATE TABLE IF NOT EXISTS profiles (
 CREATE INDEX IF NOT EXISTS profiles_institution_idx ON profiles(institution);
 
 CREATE TABLE IF NOT EXISTS preferences (
-  user_id                 UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  user_id                 TEXT PRIMARY KEY REFERENCES "user"("id") ON DELETE CASCADE,
   theme                   TEXT NOT NULL DEFAULT 'system' CHECK (theme IN ('light', 'dark', 'system')),
   notifications_enabled   BOOLEAN NOT NULL DEFAULT true,
   reminder_lead_minutes   INTEGER NOT NULL DEFAULT 30 CHECK (reminder_lead_minutes BETWEEN 0 AND 240),
@@ -70,7 +136,7 @@ CREATE TABLE IF NOT EXISTS preferences (
 
 CREATE TABLE IF NOT EXISTS grading_systems (
   id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id   TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   name      TEXT NOT NULL,
   scale     NUMERIC(4, 2) NOT NULL CHECK (scale > 0),
   is_preset BOOLEAN NOT NULL DEFAULT false
@@ -93,7 +159,7 @@ CREATE TABLE IF NOT EXISTS grade_rules (
 
 CREATE TABLE IF NOT EXISTS academic_years (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   label      TEXT NOT NULL,
   start_year INTEGER NOT NULL,
   is_current BOOLEAN NOT NULL DEFAULT false,
@@ -103,7 +169,7 @@ CREATE INDEX IF NOT EXISTS academic_years_user_idx ON academic_years(user_id);
 
 CREATE TABLE IF NOT EXISTS terms (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id          TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   academic_year_id UUID NOT NULL REFERENCES academic_years(id) ON DELETE CASCADE,
   label            TEXT NOT NULL,
   position         INTEGER NOT NULL DEFAULT 0,
@@ -120,7 +186,7 @@ CREATE INDEX IF NOT EXISTS terms_year_idx ON terms(academic_year_id, position);
 
 CREATE TABLE IF NOT EXISTS courses (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   term_id     UUID NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
   code        TEXT NOT NULL DEFAULT '',
@@ -135,7 +201,7 @@ CREATE INDEX IF NOT EXISTS courses_user_term_idx ON courses(user_id, term_id);
 
 CREATE TABLE IF NOT EXISTS course_topics (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id        TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   course_id      UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
   title          TEXT NOT NULL,
   position       INTEGER NOT NULL DEFAULT 0,
@@ -147,7 +213,7 @@ CREATE INDEX IF NOT EXISTS course_topics_course_idx ON course_topics(course_id, 
 
 CREATE TABLE IF NOT EXISTS results (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id      TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   term_id      UUID NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
   course_id    UUID REFERENCES courses(id) ON DELETE SET NULL,
   course_name  TEXT NOT NULL,
@@ -167,7 +233,7 @@ CREATE INDEX IF NOT EXISTS results_user_term_idx ON results(user_id, term_id);
 
 CREATE TABLE IF NOT EXISTS events (
   id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id   TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
   type      TEXT NOT NULL CHECK (type IN ('EXAM', 'TEST', 'ASSIGNMENT', 'OTHER')),
   title     TEXT NOT NULL,
@@ -179,7 +245,7 @@ CREATE INDEX IF NOT EXISTS events_user_date_idx ON events(user_id, date);
 
 CREATE TABLE IF NOT EXISTS tasks (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id      TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   course_id    UUID REFERENCES courses(id) ON DELETE CASCADE,
   title        TEXT NOT NULL,
   due_date     DATE,
@@ -191,7 +257,7 @@ CREATE INDEX IF NOT EXISTS tasks_user_due_idx ON tasks(user_id, due_date);
 
 CREATE TABLE IF NOT EXISTS availability (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   weekday    SMALLINT NOT NULL CHECK (weekday BETWEEN 0 AND 6),
   start_time TEXT NOT NULL,
   end_time   TEXT NOT NULL
@@ -200,7 +266,7 @@ CREATE INDEX IF NOT EXISTS availability_user_idx ON availability(user_id, weekda
 
 CREATE TABLE IF NOT EXISTS study_sessions (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id        TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   course_id      UUID REFERENCES courses(id) ON DELETE CASCADE,
   topic_id       UUID REFERENCES course_topics(id) ON DELETE SET NULL,
   date           DATE NOT NULL,
@@ -222,7 +288,7 @@ CREATE INDEX IF NOT EXISTS study_sessions_status_idx ON study_sessions(user_id, 
 
 CREATE TABLE IF NOT EXISTS goals (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id      TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   term_id      UUID REFERENCES terms(id) ON DELETE SET NULL,
   type         TEXT NOT NULL CHECK (type IN ('TARGET_CGPA', 'TARGET_GPA', 'SESSIONS', 'STREAK')),
   title        TEXT NOT NULL,
@@ -235,7 +301,7 @@ CREATE INDEX IF NOT EXISTS goals_user_idx ON goals(user_id);
 
 CREATE TABLE IF NOT EXISTS share_snapshots (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   token      TEXT NOT NULL UNIQUE,
   fields     TEXT[] NOT NULL,
   payload    JSONB NOT NULL,
@@ -248,7 +314,7 @@ CREATE INDEX IF NOT EXISTS share_snapshots_user_idx ON share_snapshots(user_id);
 
 CREATE TABLE IF NOT EXISTS notifications (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   type       TEXT NOT NULL,
   title      TEXT NOT NULL,
   body       TEXT NOT NULL DEFAULT '',
@@ -263,7 +329,7 @@ CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, crea
 
 CREATE TABLE IF NOT EXISTS feedback (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  user_id    TEXT REFERENCES "user"("id") ON DELETE SET NULL,
   user_email TEXT,
   category   TEXT NOT NULL CHECK (category IN ('BUG', 'FEATURE_REQUEST', 'GENERAL_FEEDBACK')),
   message    TEXT NOT NULL,
@@ -307,7 +373,7 @@ CREATE INDEX IF NOT EXISTS admin_activity_logs_idx ON admin_activity_logs(create
 
 CREATE TABLE IF NOT EXISTS usage_events (
   id         BIGSERIAL PRIMARY KEY,
-  user_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  user_id    TEXT REFERENCES "user"("id") ON DELETE SET NULL,
   name       TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -334,7 +400,7 @@ CREATE INDEX IF NOT EXISTS rate_limits_window_idx ON rate_limits(window_start);
  */
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   key         TEXT NOT NULL,
-  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   endpoint    TEXT NOT NULL,
   status      INTEGER NOT NULL,
   response    JSONB NOT NULL,
@@ -348,21 +414,22 @@ CREATE INDEX IF NOT EXISTS idempotency_keys_created_idx ON idempotency_keys(crea
 /* -------------------------------------------------------------------------- */
 
 /*
- * Email is already UNIQUE, but logins are case-insensitive: this makes
+ * Email is already UNIQUE, but sign-in is case-insensitive: this makes
  * lower(email) lookups an index scan and makes "Ada@x.com" vs "ada@x.com"
  * impossible to register twice.
  */
-CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users(lower(email));
+CREATE UNIQUE INDEX IF NOT EXISTS user_email_lower_idx ON "user"(lower("email"));
 
-/* Active-user counts filter on last_seen_at over a rolling window. */
-CREATE INDEX IF NOT EXISTS users_last_seen_idx ON users(last_seen_at DESC);
+/* Active-user counts filter on lastSeenAt over a rolling window. */
+CREATE INDEX IF NOT EXISTS user_last_seen_idx ON "user"("lastSeenAt" DESC);
+
 
 /* Per-user analytics (DAU/WAU/MAU) rather than per-event-name totals. */
 CREATE INDEX IF NOT EXISTS usage_events_user_idx ON usage_events(user_id, created_at DESC);
 
-/* Session expiry sweeps. */
-CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions(expires_at);
-CREATE INDEX IF NOT EXISTS password_resets_expires_idx ON password_resets(expires_at);
+/* Session and token expiry sweeps live with the Better Auth tables above. */
+CREATE INDEX IF NOT EXISTS verification_expires_idx ON "verification"("expiresAt");
+
 
 /*
  * The planner asks "what is already booked from today onwards?" on every
@@ -401,7 +468,7 @@ CREATE INDEX IF NOT EXISTS feedback_user_idx ON feedback(user_id, created_at DES
  * ownership: `user_id` comes from the session, never from the payload.
  * ------------------------------------------------------------------------ */
 CREATE TABLE IF NOT EXISTS sync_rows (
-  user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id     TEXT        NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   collection  TEXT        NOT NULL,
   row_id      UUID        NOT NULL,
   data        JSONB       NOT NULL,
@@ -435,9 +502,11 @@ COMMIT;
  */
 CREATE OR REPLACE FUNCTION acadmap_purge_expired() RETURNS void AS $$
 BEGIN
-  DELETE FROM sessions        WHERE expires_at < now();
-  DELETE FROM password_resets WHERE expires_at < now();
+  /* Better Auth ignores rows past their expiry; deleting them is just tidiness. */
+  DELETE FROM "session"      WHERE "expiresAt" < now();
+  DELETE FROM "verification" WHERE "expiresAt" < now();
   DELETE FROM rate_limits     WHERE window_start < now() - INTERVAL '1 day';
+
   DELETE FROM idempotency_keys WHERE created_at < now() - INTERVAL '1 day';
   DELETE FROM usage_events    WHERE created_at < now() - INTERVAL '180 days';
 END;

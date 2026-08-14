@@ -23,8 +23,6 @@ import {
   track,
 } from './_lib/http';
 
-export const config = { runtime: 'edge' };
-
 interface ResultRow {
   id: string;
   termId: string;

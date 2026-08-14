@@ -8,8 +8,6 @@
 import { one, sql } from '../_lib/db';
 import { fail, jsonCached, methodNotAllowed, requireOwner } from '../_lib/http';
 
-export const config = { runtime: 'edge' };
-
 const ALLOWED_RANGES = new Set([1, 7, 30, 90]);
 
 export default async function handler(request: Request): Promise<Response> {
@@ -28,11 +26,14 @@ export default async function handler(request: Request): Promise<Response> {
     onboarded: number;
   }>(
     `SELECT
-       (SELECT count(*) FROM users WHERE role <> 'OWNER' AND status <> 'DELETED')::int AS students,
-       (SELECT count(*) FROM users
-          WHERE role <> 'OWNER' AND created_at > now() - ($1 || ' days')::interval)::int AS "newStudents",
-       (SELECT count(*) FROM users
-          WHERE last_seen_at > now() - ($1 || ' days')::interval)::int AS "activeUsers",
+      /* "user" is Better Auth's table: reserved word, camelCase columns. */
+      (SELECT count(*) FROM "user" WHERE "role" <> 'OWNER' AND "status" <> 'DELETED')::int AS students,
+
+      (SELECT count(*) FROM "user"
+         WHERE "role" <> 'OWNER' AND "createdAt" > now() - ($1 || ' days')::interval)::int AS "newStudents",
+      (SELECT count(*) FROM "user"
+         WHERE "lastSeenAt" > now() - ($1 || ' days')::interval)::int AS "activeUsers",
+
        (SELECT count(*) FROM profiles WHERE onboarding_completed_at IS NOT NULL)::int AS onboarded`,
     [String(days)],
   );

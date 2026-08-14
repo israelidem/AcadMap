@@ -20,8 +20,6 @@ import {
   requireUser,
 } from './_lib/http';
 
-export const config = { runtime: 'edge' };
-
 const COLUMNS = `id, user_email AS "userEmail", category, message, status,
                  created_at AS "createdAt"`;
 

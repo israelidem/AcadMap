@@ -3,11 +3,13 @@
  * Request/Response — no framework, no dependencies).
  *
  * Security posture:
- *   * Sessions live in an HttpOnly, Secure, SameSite=Lax cookie.
+ *   * Sessions belong to Better Auth (see `_lib/auth.ts`): it owns the cookie,
+ *     the token and the expiry. Nothing here decides whether a session is valid.
  *   * `requireUser` re-reads the session from the database on every request, so
  *     a suspended or deleted account loses access immediately.
  *   * `requireOwner` re-checks the owner role server-side — hiding the admin UI
  *     is never treated as authorisation.
+
  *   * `rateLimit` uses a Postgres counter, so no paid Redis is needed.
  *   * `requireSameOrigin` blocks cross-site writes; SameSite=Lax alone does not
  *     cover top-level form posts.
@@ -16,12 +18,12 @@
  */
 
 import { z } from 'zod';
+
+import { auth } from './auth';
 import { one, sql } from './db';
 
-export const SESSION_COOKIE = 'am_session';
-const SESSION_DAYS = 30;
-
 export interface SessionUser {
+
   id: string;
   email: string;
   role: 'STUDENT' | 'OWNER';
@@ -89,52 +91,53 @@ export async function readBody<T>(
 /* Cookies & sessions                                                         */
 /* -------------------------------------------------------------------------- */
 
-function readCookie(request: Request, name: string): string | null {
-  const header = request.headers.get('cookie');
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const [key, ...rest] = part.trim().split('=');
-    if (key === name) return decodeURIComponent(rest.join('='));
-  }
-  return null;
-}
-
-export function sessionCookie(token: string): string {
-  const maxAge = SESSION_DAYS * 86_400;
-  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
-}
-
-export const clearedSessionCookie = `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
-
-export async function createSession(userId: string): Promise<string> {
-  const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, '');
-  await sql(
-    `INSERT INTO sessions (token, user_id, expires_at)
-     VALUES ($1, $2, now() + ($3 || ' days')::interval)`,
-    [token, userId, String(SESSION_DAYS)],
-  );
-  return token;
-}
-
-export async function destroySession(request: Request): Promise<void> {
-  const token = readCookie(request, SESSION_COOKIE);
-  if (token) await sql('DELETE FROM sessions WHERE token = $1', [token]);
-}
-
-/** Returns the signed-in, active user or null. */
+/**
+ * Returns the signed-in, active user or null.
+ *
+ * The session is resolved by Better Auth from the request's cookies, which means
+ * the token format, expiry and rotation are its business, not ours. What stays
+ * ours is the product rule on top: a SUSPENDED or DELETED account is treated as
+ * signed out even while it holds a technically valid session.
+ *
+ * `getSession` hits the database, so this is a live check rather than a decoded
+ * token — suspending an account takes effect on the account's next request.
+ */
 export async function currentUser(request: Request): Promise<SessionUser | null> {
-  const token = readCookie(request, SESSION_COOKIE);
-  if (!token) return null;
-  const row = await one<SessionUser>(
-    `SELECT u.id, u.email, u.role, u.status
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-      WHERE s.token = $1 AND s.expires_at > now()`,
-    [token],
-  );
-  if (!row || row.status !== 'ACTIVE') return null;
-  return row;
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session?.user) return null;
+
+  const user = session.user as { id: string; email: string; role?: string; status?: string };
+  const status = (user.status ?? 'ACTIVE') as SessionUser['status'];
+  if (status !== 'ACTIVE') return null;
+
+  return {
+    id: user.id,
+    email: user.email,
+    role: (user.role ?? 'STUDENT') as SessionUser['role'],
+    status,
+  };
 }
+
+/**
+ * Records that the account was seen today.
+ *
+ * Called from the sync endpoint rather than on sign-in: the app is a PWA that a
+ * student may keep open for weeks, so "signed in" is a poor proxy for "active".
+ * The write is skipped when the stamp is already fresh, so a device polling every
+ * few minutes does not turn an activity metric into a write-heavy table.
+ */
+export async function touchLastSeen(userId: string): Promise<void> {
+  try {
+    await sql(
+      `UPDATE "user" SET "lastSeenAt" = now()
+        WHERE "id" = $1 AND ("lastSeenAt" IS NULL OR "lastSeenAt" < now() - INTERVAL '1 hour')`,
+      [userId],
+    );
+  } catch {
+    // An activity stamp is never worth failing a request over.
+  }
+}
+
 
 export async function requireUser(
   request: Request,

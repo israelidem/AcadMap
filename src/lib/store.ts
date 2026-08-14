@@ -35,9 +35,9 @@ import type {
   User,
 } from '@shared/types';
 import { PRESET_GRADING_SYSTEMS } from '@shared/grading';
-import { migrateIdsToUuid, migrateSyncMetadata } from './migrations';
 import { forgetAllSyncWatermarks } from './watermark';
 import { nowIso } from './utils';
+
 
 
 
@@ -128,17 +128,44 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   notificationsEnabled: true,
 };
 
-const STORAGE_KEY = 'acadmap.db.v1';
+/**
+ * Where the snapshot lives.
+ *
+ * The `v2` is a deliberate break. AcadMap's first release kept accounts in the
+ * browser, and a chain of five migrations tried to carry those snapshots forward
+ * onto server-backed accounts — ids invented locally, rows half-uploaded,
+ * profiles blanked by a first sync. Rather than keep repairing a shape that was
+ * never the server's, the app now starts from a new key: `v1` snapshots are
+ * discarded on sight, every device begins empty, and the account on the server is
+ * the only history there is.
+ */
+const STORAGE_KEY = 'acadmap.db.v2';
+
+/** The v2 snapshot has had no format changes yet. */
+const DB_VERSION = 1;
+
+/** The pre-v2 snapshot key, and the sync watermarks that went with it. */
+const LEGACY_STORAGE_KEY = 'acadmap.db.v1';
 
 /**
- * 2 when ids became UUIDs and rows gained sync bookkeeping; 3 when writes began
- * being stamped centrally, which is also when rows already saved without a stamp
- * had to be rescued; 4 when pushes moved to an explicit outbox, which every
- * existing row is enqueued into so a half-synced account finishes uploading;
- * 5 when timestamps that arrived in Postgres's format were rewritten as ISO.
- * `load()` brings older snapshots forward; see `migrations.ts`.
+ * Throws away everything the pre-v2 app stored on this device.
+ *
+ * Runs before the first read. Leaving the old key in place would cost a
+ * megabyte of quota for data nothing can read, and leaving the watermarks would
+ * be worse: they say "this device has already seen the account up to here", so
+ * the first sync of the fresh store would skip the very rows it needs to pull.
  */
-const DB_VERSION = 5;
+function discardLegacyStorage(): void {
+  if (typeof localStorage === 'undefined') return;
+  if (localStorage.getItem(LEGACY_STORAGE_KEY) === null) return;
+  try {
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    forgetAllSyncWatermarks();
+  } catch {
+    // A device that will not let us clean up still gets a working empty store.
+  }
+}
+
 
 /**
  * Collections that sync to the server, and so must carry `updatedAt` and
@@ -204,85 +231,20 @@ function emptyDatabase(): Database {
 }
 
 /**
- * Turns a stored snapshot into a usable database, migrating it if it is old.
+ * Turns a stored snapshot into a usable database.
  *
- * Shared by the initial load and by cross-tab reads so a snapshot can never
- * reach the app un-migrated, whichever path it arrived by.
+ * Merging over the defaults is the whole job: it means a snapshot written by an
+ * older build gains any collection added since, without that build having to
+ * have known about it. Shared by the initial load and by cross-tab reads so a
+ * snapshot reaches the app the same way whichever path it arrived by.
  */
 function hydrate(parsed: Partial<Database>): Database {
-  // Merge over defaults so older payloads gain new collections safely.
-  let next = { ...emptyDatabase(), ...parsed };
-
-  if ((parsed.version ?? 1) < 2) {
-    // Ids became UUIDs and rows gained sync bookkeeping. Both rewrites are
-    // idempotent, but they walk the whole snapshot, so they run only when the
-    // stored version says they are needed.
-    next = migrateIdsToUuid(next);
-  }
-
-  if ((parsed.version ?? 1) < 3) {
-    /*
-     * Rescues rows that were saved before writes were stamped centrally.
-     *
-     * Until then the action layer wrote rows with no `updatedAt` at all. The
-     * sync engine reads an unstamped row as dated 1970 and only offers rows
-     * newer than the last completed sync, so every course, result and session a
-     * student recorded after their first sync was silently unsendable. Stamping
-     * them now and forgetting the watermark makes the whole account look new,
-     * which is exactly right: as far as the server is concerned, it is.
-     */
-    next.profiles = next.profiles.map((profile) => ({
-      ...profile,
-      // Profiles predate having an id of their own; sync addresses rows by id.
-      id: profile.id ?? profile.userId,
-    }));
-
-    next = migrateSyncMetadata(
-      next as unknown as Record<string, unknown>,
-      [...SYNCED_COLLECTIONS],
-      nowIso(),
-    ) as unknown as Database;
-
-    forgetAllSyncWatermarks();
-  }
-
-  if ((parsed.version ?? 1) < 4) {
-    /*
-     * Enqueues everything this device holds, because some of it never arrived.
-     *
-     * Pushes used to be chosen by timestamp: rows newer than the last completed
-     * sync. A long history goes up in batches, and the sync clock moved on after
-     * each batch, so from the second batch onwards the rows still waiting looked
-     * as though they had already been sent. Accounts came out half-uploaded —
-     * typically the dashboard's recent rows, with older records left behind.
-     *
-     * Re-queuing the lot is the repair. The server upserts, so rows that did
-     * arrive are simply written again with the same values.
-     */
-    next.outbox = withEverythingQueued(next);
-  }
-
-  if ((parsed.version ?? 1) < 5) {
-    /*
-     * Rewrites timestamps that came back from the server in Postgres's format.
-     *
-     * A pulled row was stored with `updated_at` exactly as the database rendered
-     * it — `2026-08-14 17:12:00+00`, with a space and an offset instead of a `T`
-     * and a `Z`. The API only accepts ISO, so the first time such a row was
-     * pushed the whole request was rejected: a device that had pulled an account
-     * could never upload again, and said only "Validation failed".
-     *
-     * The instant is unchanged, so merges are unaffected; only the spelling is.
-     */
-    next = withIsoStamps(next);
-  }
-
-  return { ...next, version: DB_VERSION };
-
+  return { ...emptyDatabase(), ...parsed, version: DB_VERSION };
 }
 
 function load(): Database {
   if (typeof localStorage === 'undefined') return emptyDatabase();
+  discardLegacyStorage();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyDatabase();
@@ -291,6 +253,7 @@ function load(): Database {
     return emptyDatabase();
   }
 }
+
 
 
 let db: Database = load();
@@ -332,9 +295,11 @@ function syncFromStorage(): boolean {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === null || raw === lastWritten) return false;
-    // Goes through `hydrate` as well: an old tab can write a v1 snapshot at any
-    // moment, and it must not reach the app un-migrated.
+    // Goes through `hydrate` as well: a tab running an older build can write a
+    // snapshot at any moment, and it must reach the app with every collection
+    // present rather than with whichever ones that build knew about.
     db = hydrate(JSON.parse(raw) as Partial<Database>);
+
 
     lastWritten = raw;
     return true;
@@ -499,46 +464,8 @@ export function outboxKey(collection: string, id: ID): string {
   return `${collection}:${id}`;
 }
 
-/** The same instant written as strict ISO, or null if it cannot be read. */
-function isoStamp(value: unknown): string | null {
-  if (typeof value !== 'string' || value === '') return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
-/**
- * Every stamp in the snapshot spelled the one way the API accepts.
- *
- * Rows keep an unreadable stamp rather than gaining a made-up one: the sync
- * engine treats a missing stamp as ancient, which is honest, whereas stamping it
- * now would claim this device holds the newest copy.
- */
-function withIsoStamps(current: Database): Database {
-  const next: Database = { ...current };
-
-  for (const collection of SYNCED_COLLECTIONS) {
-    const rows = current[collection] as unknown as Array<Record<string, unknown>>;
-    let touched = false;
-
-    const repaired = rows.map((row) => {
-      const iso = isoStamp(row.updatedAt);
-      if (iso === null || iso === row.updatedAt) return row;
-      touched = true;
-      return { ...row, updatedAt: iso };
-    });
-
-    if (touched) (next[collection] as unknown) = repaired;
-  }
-
-  next.tombstones = current.tombstones.map((tombstone) => {
-    const iso = isoStamp(tombstone.deletedAt);
-    return iso === null || iso === tombstone.deletedAt ? tombstone : { ...tombstone, deletedAt: iso };
-  });
-
-  return next;
-}
-
 /** Every row and delete this device holds, queued, with no duplicates. */
+
 
 function withEverythingQueued(current: Database): string[] {
   const queued = new Set(current.outbox);

@@ -38,10 +38,10 @@ import {
   readBody,
   requireSameOrigin,
   requireUser,
+  touchLastSeen,
   track,
-} from './_lib/http';
 
-export const config = { runtime: 'edge' };
+} from './_lib/http';
 
 /**
  * Rows returned per pull. A page beyond this is unusual — it means a device has
@@ -184,7 +184,11 @@ export default async function handler(request: Request): Promise<Response> {
     : new Date().toISOString();
 
   await track('sync', auth.user.id);
+  // Syncing is the honest signal that the account is in use, which is what the
+  // admin overview's active-user count reads. Throttled to once an hour inside.
+  await touchLastSeen(auth.user.id);
   await purgeExpiredSometimes();
+
 
   return json({
     rows: [...merged.values()],

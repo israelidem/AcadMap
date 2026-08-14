@@ -1,17 +1,14 @@
 /**
  * Account recovery.
  *
- * Two ways in, and the screen is explicit about which one is happening:
- *
- *   * Online, the server emails a link. The screen then says an email has been
- *     sent — and it only says that when the server confirms it sent one. The
- *     previous version claimed an email had gone out when nothing had, which is
- *     the bug this fixes.
- *   * Offline, the device issues a recovery code for the account it already
- *     knows, and shows it here. That is not an email and is not described as one.
+ * The server emails a link, and the screen only claims an email was sent once the
+ * server confirms it sent one — the previous version said so unconditionally,
+ * which is the bug this fixes. There is no offline path: only the account's real
+ * password can be changed, and only the server holds that.
  *
  * Opening the emailed link lands here with `?token=`, which is filled in for the
  * student so the only thing left to do is choose a password.
+
  */
 
 import { useEffect, useState } from 'react';
@@ -29,8 +26,7 @@ export default function Recover() {
   const [email, setEmail] = useState('');
   /** Set when the server has actually sent an email. */
   const [emailSent, setEmailSent] = useState(false);
-  /** Set only on the offline path, where this device issued the code itself. */
-  const [issuedCode, setIssuedCode] = useState<string | null>(null);
+
   const [token, setToken] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -65,20 +61,13 @@ export default function Recover() {
       return;
     }
 
-    if (result.sent) {
-      setEmailSent(true);
-      setIssuedCode(null);
-      // Deliberately conditional: the server answers the same way for an address
-      // it does not know, so this cannot promise an email will arrive.
-      toast('If that account exists, a reset link is on its way.', 'info');
-      return;
-    }
+    setEmailSent(true);
+    // Deliberately hedged: the server answers the same way for an address
 
-    setEmailSent(false);
-    setIssuedCode(result.code);
-    setToken(result.code);
-    toast('No connection, so a recovery code was issued on this device.', 'info');
+    // it does not know, so this cannot promise an email will arrive.
+    toast('If that account exists, a reset link is on its way.', 'info');
   };
+
 
   const submitReset = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -112,11 +101,12 @@ export default function Recover() {
     return (
       <AuthShell
         title="Password updated"
-        subtitle="You are signed in on this device. Other devices will ask for the new password."
+        subtitle="Log in with your new password. It works on every device."
       >
-        <Button className="w-full" onClick={() => navigate('/', { replace: true })}>
-          Continue to AcadMap
+        <Button className="w-full" onClick={() => navigate('/login', { replace: true })}>
+          Go to log in
         </Button>
+
       </AuthShell>
     );
   }
@@ -154,13 +144,8 @@ export default function Recover() {
           </p>
         )}
 
-        {issuedCode && (
-          <p className="am-hint mt-3 break-all">
-            No connection, so no email could be sent. Use this code on this device:{' '}
-            <span className="font-mono">{issuedCode}</span>
-          </p>
-        )}
       </div>
+
 
       <hr className="my-5 border-border" />
 

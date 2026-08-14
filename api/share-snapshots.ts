@@ -28,8 +28,6 @@ import {
 } from './_lib/http';
 import { createShareToken, hashShareToken } from './_lib/tokens';
 
-export const config = { runtime: 'edge' };
-
 /** Fields the student may choose to publish, mapped to profile columns. */
 const PROFILE_FIELDS: Record<string, string> = {
   fullName: 'full_name',

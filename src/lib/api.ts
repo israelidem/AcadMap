@@ -11,13 +11,9 @@
  * against relative paths and cookies are sent automatically.
  */
 
-import type { FeatureFlags, ID, Profile, User } from '@shared/types';
-import type {
-  ImportBundle,
-  LoginInput,
-  ProfileInput,
-  RegisterInput,
-} from '@shared/schemas';
+import type { ID, Profile } from '@shared/types';
+import type { ImportBundle, ProfileInput } from '@shared/schemas';
+
 
 export class ApiError extends Error {
   /** HTTP status, or 0 when the request never reached the server. */
@@ -35,14 +31,8 @@ export class ApiError extends Error {
   }
 }
 
-export type SessionUser = Pick<User, 'id' | 'email' | 'role' | 'status'>;
-
-export interface SessionResponse {
-  user: SessionUser | null;
-  featureFlags: FeatureFlags;
-}
-
 interface RequestOptions {
+
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal;
@@ -91,35 +81,17 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return payload as T;
 }
 
-/* --------------------------------- auth ---------------------------------- */
-
+/*
+ * Authentication is deliberately absent from this object.
+ *
+ * Signing up, signing in, sessions, password resets, changing a password and
+ * deleting an account all belong to Better Auth, which has its own client (see
+ * src/lib/auth.ts). Keeping a second, hand-written path to the same endpoints is
+ * how the two drift apart.
+ */
 export const api = {
-  /** Current session and feature flags; `user` is null when signed out. */
-  session: (signal?: AbortSignal) => request<SessionResponse>('/auth/session', { signal }),
-
-  register: (input: RegisterInput) =>
-    request<{ user: SessionUser }>('/auth/register', { method: 'POST', body: input }),
-
-  login: (input: LoginInput) =>
-    request<{ user: SessionUser }>('/auth/login', { method: 'POST', body: input }),
-
-  logout: () => request<{ ok: true }>('/auth/session', { method: 'DELETE' }),
-
-  /**
-   * Asks for a reset link by email.
-   *
-   * Answers the same whether or not the address has an account, so the caller
-   * must not read anything into success beyond "the request was accepted".
-   */
-  requestPasswordReset: (input: { email: string }) =>
-    request<{ ok: true }>('/auth/request-reset', { method: 'POST', body: input }),
-
-  /** Consumes a reset link and signs the device in with the new password. */
-  resetPassword: (input: { token: string; password: string }) =>
-    request<{ user: SessionUser }>('/auth/reset-password', { method: 'POST', body: input }),
-
-
   /* ------------------------------- profile ------------------------------- */
+
 
   profile: (signal?: AbortSignal) => request<{ profile: Profile }>('/profile', { signal }),
 

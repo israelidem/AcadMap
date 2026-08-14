@@ -14,7 +14,9 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { CheckCircle2, Info, Loader2, X, XCircle } from 'lucide-react';
+
 import { cn, uid } from '@/lib/utils';
 
 /* --------------------------------- Button -------------------------------- */
@@ -361,9 +363,18 @@ export function Modal({
    * as Sync or Notifications became a dead end: nothing to dismiss, nothing to
    * scroll. Capping the panel and giving the body `min-h-0` inside a column keeps
    * the header and footer reachable at any height, on any screen.
+   *
+   * Rendered into `document.body` rather than where it is declared, and that is
+   * not a detail. `backdrop-filter` — which the app header uses — makes an
+   * element a containing block for its fixed-position descendants, so a modal
+   * opened from a header button resolved `inset-0` against the 48px-tall header
+   * instead of the viewport. The notification and sync dialogs were squeezed into
+   * that strip: unreadable, with the close button off-screen. A portal puts the
+   * dialog beyond the reach of any ancestor's filter, transform or overflow.
    */
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center overscroll-contain p-0 sm:items-center sm:p-4">
+
       <div
         className="absolute inset-0 bg-black/50 animate-fade-in"
         onClick={onClose}
@@ -396,10 +407,11 @@ export function Modal({
           </footer>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
-
 }
+
 
 export function ConfirmButton({
   onConfirm,

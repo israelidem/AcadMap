@@ -22,9 +22,10 @@
 
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+
 
 /** Minimal .env reader — avoids depending on a Node version that has --env-file. */
 async function loadEnv() {
@@ -158,7 +159,18 @@ async function main() {
   console.log('\n✓ Schema applied.');
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+/*
+ * Only pushes the schema when run directly.
+ *
+ * db-reset.mjs imports `splitStatements` from here, and an unguarded call would
+ * mean importing the splitter also applied the schema — before the reset had
+ * dropped anything, with output that made it look as though the reset had run.
+ */
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}
+
+

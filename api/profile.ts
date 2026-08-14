@@ -19,8 +19,6 @@ import {
   track,
 } from './_lib/http';
 
-export const config = { runtime: 'edge' };
-
 const SELECT = `SELECT user_id       AS "userId",
                        full_name     AS "fullName",
                        institution,

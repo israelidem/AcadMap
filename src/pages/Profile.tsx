@@ -9,7 +9,8 @@ import { useState } from 'react';
 import { Copy, LogOut, Trash2 } from 'lucide-react';
 import type { ShareField } from '@shared/types';
 import { round } from '@shared/gpa';
-import { logout } from '@/lib/auth';
+import { deleteAccount, logout } from '@/lib/auth';
+
 import {
   createSnapshot,
   deleteSnapshot,
@@ -25,11 +26,13 @@ import {
   Button,
   Card,
   Input,
+  Modal,
   PageHeader,
   Select,
   Toggle,
   useToast,
 } from '@/components/ui';
+
 
 const SHARE_FIELDS: { field: ShareField; label: string }[] = [
   { field: 'fullName', label: 'Name' },
@@ -63,7 +66,37 @@ export default function Profile() {
   const [selected, setSelected] = useState<ShareField[]>(['fullName', 'programme', 'cgpa', 'level']);
   const [expiryDays, setExpiryDays] = useState('7');
 
+  /* Deleting the account: password-confirmed, in a modal, never one click. */
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState<string>();
+  const [deleting, setDeleting] = useState(false);
+
   if (!user) return null;
+
+  const confirmDelete = async () => {
+    setDeleteError(undefined);
+    if (!deletePassword) {
+      setDeleteError('Enter your password to confirm.');
+      return;
+    }
+
+    setDeleting(true);
+    const result = await deleteAccount(deletePassword);
+    setDeleting(false);
+
+    if (!result.ok) {
+      setDeleteError(result.error ?? 'Could not delete the account.');
+      return;
+    }
+
+    // The session is gone, so the router sends this device back to the landing
+    // page on the next render; the toast is the only confirmation needed.
+    setDeleteOpen(false);
+    setDeletePassword('');
+    toast('Your account and all its data have been deleted.');
+  };
+
 
   const set = (key: keyof typeof fields) => (event: { target: { value: string } }) =>
     setFields((current) => ({ ...current, [key]: event.target.value }));
@@ -324,6 +357,61 @@ export default function Profile() {
           </div>
         </Card>
       )}
+
+      {tab === 'preferences' && (
+        <Card
+          className="mt-4 border-danger/40"
+          title="Delete my account"
+          description="Removes the account and every course, result, plan and snapshot in it, on all your devices. This cannot be undone."
+        >
+          <Button
+            variant="danger"
+            icon={<Trash2 className="h-4 w-4" />}
+            onClick={() => {
+              setDeleteError(undefined);
+              setDeletePassword('');
+              setDeleteOpen(true);
+            }}
+          >
+            Delete my account
+          </Button>
+        </Card>
+      )}
+
+      <Modal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        title="Delete your account?"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDeleteOpen(false)}>
+              Keep my account
+            </Button>
+            <Button variant="danger" loading={deleting} onClick={() => void confirmDelete()}>
+              Delete permanently
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-4">
+          <p className="text-sm text-muted">
+            Everything under <span className="font-medium">{user.email}</span> is deleted
+            immediately: courses, results, GPA history, study plans, goals and share links. There is
+            no recovery, and no export is kept.
+          </p>
+          {/* The server insists on the password; asking here is not decoration. */}
+          <Input
+            label="Confirm your password"
+            type="password"
+            autoComplete="current-password"
+            value={deletePassword}
+            onChange={(event) => setDeletePassword(event.target.value)}
+            error={deleteError}
+          />
+        </div>
+      </Modal>
     </>
   );
 }
+
+

@@ -23,8 +23,6 @@ import {
   track,
 } from './_lib/http';
 
-export const config = { runtime: 'edge' };
-
 const COLUMNS = `id, term_id AS "termId", name, code, units, priority,
                  exam_date AS "examDate", description, archived`;
 

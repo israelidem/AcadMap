@@ -8,11 +8,12 @@
  * that is needed.
  *
  * Routing mirrors Vercel's file conventions:
- *   /api/profile          → api/profile.ts
- *   /api/auth/login       → api/auth/login.ts
- *   /api/share/abc123     → api/share/[token].ts
- *   /api/courses          → api/courses/index.ts (if the file form is absent)
+ *   /api/profile              → api/profile.ts
+ *   /api/share/abc123         → api/share/[token].ts
+ *   /api/courses              → api/courses/index.ts (if the file form is absent)
+ *   /api/auth/sign-in/email   → api/auth/[...all].ts   (catch-all, any depth)
  * Files and folders starting with `_` are private helpers and never routed.
+
  *
  * Handlers are loaded through Vite's SSR pipeline, so TypeScript, the `@shared`
  * alias and hot reloading all work: editing a handler takes effect on the next
@@ -31,8 +32,21 @@ const API_DIR = 'api';
 
 type Handler = (request: Request) => Response | Promise<Response>;
 
+/** `[...all].ts` in a directory: owns that directory and everything below it. */
+function catchAllIn(dir: string): string | null {
+  const name = safeReaddir(dir).find((entry) => /^\[\.\.\..+\]\.(ts|js)$/.test(entry));
+  return name ? join(dir, name) : null;
+}
+
 /**
- * Finds the handler file for a request path, honouring `[param]` segments.
+ * Finds the handler file for a request path, honouring `[param]` and `[...all]`
+ * segments.
+ *
+ * The catch-all case is what serves authentication in development: Better Auth
+ * owns paths of varying depth under one base path (`/api/auth/get-session` but
+ * also `/api/auth/sign-in/email`), so when a segment matches no file or folder,
+ * the nearest catch-all above it takes the whole remainder — the same rule Vercel
+ * applies in production. Without this, sign-in worked deployed and 404ed locally.
  *
  * @param segments Path segments after `/api/`, e.g. `['share', 'abc123']`.
  * @returns A path relative to the project root, or null when nothing matches.
@@ -51,22 +65,24 @@ function resolveHandlerFile(root: string, segments: string[]): string | null {
         if (existsSync(join(dir, segment, candidate))) return join(dir, segment, candidate);
       }
       // Dynamic file, e.g. [token].ts — the value itself is read by the handler
-      // from the URL, so the file name is all we need here.
-      const dynamic = safeReaddir(dir).find((name) => /^\[.+\]\.(ts|js)$/.test(name));
-      return dynamic ? join(dir, dynamic) : null;
+      // from the URL, so the file name is all we need here. `[...all]` is
+      // excluded from this pattern so a single-parameter route always wins.
+      const dynamic = safeReaddir(dir).find((name) => /^\[(?!\.\.\.).+\]\.(ts|js)$/.test(name));
+      return dynamic ? join(dir, dynamic) : catchAllIn(dir);
     }
 
     if (existsSync(join(dir, segment))) {
       dir = join(dir, segment);
       continue;
     }
-    const dynamicDir = safeReaddir(dir).find((name) => /^\[.+\]$/.test(name));
-    if (!dynamicDir) return null;
+    const dynamicDir = safeReaddir(dir).find((name) => /^\[(?!\.\.\.).+\]$/.test(name));
+    if (!dynamicDir) return catchAllIn(dir);
     dir = join(dir, dynamicDir);
   }
 
   return null;
 }
+
 
 function safeReaddir(dir: string): string[] {
   try {
@@ -125,7 +141,17 @@ export function apiDevPlugin(): Plugin {
       // The handlers read process.env directly (as they do on Vercel), so load
       // .env for the server side. Nothing here is exposed to the browser.
       const env = loadEnv(mode, process.cwd(), '');
-      for (const key of ['DATABASE_URL', 'OWNER_EMAIL', 'APP_ORIGIN']) {
+      for (const key of [
+        'DATABASE_URL',
+        'OWNER_EMAIL',
+        'APP_ORIGIN',
+        'BETTER_AUTH_SECRET',
+        'BETTER_AUTH_URL',
+        'BREVO_API_KEY',
+        'RESEND_API_KEY',
+        'MAIL_FROM',
+        'MAIL_REPLY_TO',
+      ]) {
         if (env[key] && !process.env[key]) process.env[key] = env[key];
       }
       if (!process.env.DATABASE_URL) {
@@ -133,6 +159,17 @@ export function apiDevPlugin(): Plugin {
           '[api] DATABASE_URL is not set — /api routes will fail. Copy .env.example to .env.',
         );
       }
+      // Better Auth refuses to sign a cookie without a secret, so signing in
+      // would fail with a stack trace rather than a message. Say so up front.
+      if (!process.env.BETTER_AUTH_SECRET) {
+        console.warn(
+          '[api] BETTER_AUTH_SECRET is not set — sign-up and sign-in will fail. ' +
+            'Add any long random string to .env.',
+        );
+      }
+      // Reset links and cookie checks need to know where the app lives.
+      process.env.BETTER_AUTH_URL ??= 'http://localhost:5173';
+
     },
 
     configureServer(server: ViteDevServer) {
