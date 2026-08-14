@@ -7,13 +7,19 @@
  *
  * The table stores the SHA-256 of the token, so the lookup hashes the incoming
  * value first — a leaked database yields no usable links.
+ *
+ * Node runtime (the default), like every other handler. Nothing here needs a
+ * session and the queries go over Neon's HTTP endpoint, so Edge would suit it —
+ * but this file shares `_lib/http` with the authenticated routes, and that
+ * module imports `_lib/auth`, which is Better Auth over a `pg` Pool. The bundler
+ * follows imports, not calls, so declaring `runtime: 'edge'` here pulled the
+ * Postgres driver into an Edge function and failed the build on `net`, `tls`,
+ * `dns` and friends. The `max-age=60` below is what keeps this endpoint cheap.
  */
 
 import { one, sql } from '../_lib/db';
 import { clientIp, fail, json, methodNotAllowed, rateLimit } from '../_lib/http';
 import { hashShareToken } from '../_lib/tokens';
-
-export const config = { runtime: 'edge' };
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'GET') return methodNotAllowed(['GET']);
