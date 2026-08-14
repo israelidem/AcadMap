@@ -8,8 +8,8 @@
  *
  * One exchange, in order:
  *
- *   1. Collect this device's changes — rows written since the last completed
- *      sync, plus deletes recorded as tombstones.
+ *   1. Take this device's changes from the outbox — the rows and deletes the
+ *      store queued as they were written, oldest first.
  *   2. POST them and receive everything the account changed since then.
  *   3. Reconcile per collection with `mergeCollection`, the same rules the server
  *      applies, and write the result back in a single store update.
@@ -24,8 +24,9 @@
  *     the row is reported, because guessing which copy of a graded result is
  *     right is not the app's decision to make.
  *   * Failure is normal, not exceptional. Offline, a rate limit or a lost session
- *     leaves the local database untouched and the watermark unmoved, so the next
- *     attempt simply tries again.
+ *     leaves the local database untouched, the watermark unmoved and the outbox
+ *     intact, so the next attempt simply tries again.
+
  */
 
 import {
@@ -40,7 +41,9 @@ import { lastSyncedAt, setLastSyncedAt } from './watermark';
 
 import {
   SYNCED_COLLECTIONS,
+  clearOutboxEntries,
   getDatabase,
+  outboxKey,
   update,
   type Database,
   type Tombstone,
@@ -203,33 +206,98 @@ async function run(): Promise<void> {
 
 }
 
+/**
+ * What this device owes the server, oldest first.
+ *
+ * Read from the outbox rather than worked out from timestamps. The timestamp
+ * version had a hole that cost real data: a long history is sent in batches, the
+ * sync clock advances after each one, and every row still waiting then looked
+ * already sent — accounts arrived with their recent rows and nothing older.
+ *
+ * Every entry taken is returned with the version of it that went, so the queue
+ * can be cleared against what the server actually received. Entries with nothing
+ * left to send — a row gone without a tombstone, an id from before ids were
+ * UUIDs — carry a null version and are simply dropped, so the queue cannot grow
+ * for ever. Entries belonging to another account on this device are left alone,
+ * to be sent when that student signs in.
+ */
+
+/** A queue entry and the version of it that went to the server. */
+interface SentEntry {
+  entry: string;
+  stamp: string | null;
+}
+
+function drainOutbox(
+  db: Database,
+  userId: string,
+): { rows: WireRow[]; sent: SentEntry[]; more: boolean } {
+  const syncable = new Set<string>(SYNC_COLLECTIONS);
+  const tombstones = new Map(
+    db.tombstones.map((t) => [outboxKey(t.collection, t.id), t] as const),
+  );
+
+  const rows = new Map<string, Record<string, unknown>>();
+  for (const collection of SYNCED_COLLECTIONS) {
+    for (const row of db[collection] as unknown as Array<Record<string, unknown>>) {
+      rows.set(outboxKey(collection, String(row.id)), row);
+    }
+  }
+
+  const wire: WireRow[] = [];
+  const sent: SentEntry[] = [];
+  let more = false;
+
+  for (const entry of db.outbox) {
+    if (wire.length >= BATCH) {
+      more = true;
+      break;
+    }
+
+    const split = entry.indexOf(':');
+    const collection = entry.slice(0, split);
+    const id = entry.slice(split + 1);
+
+    if (!syncable.has(collection) || !UUID.test(id)) {
+      sent.push({ entry, stamp: null });
+      continue;
+    }
+
+    const tombstone = tombstones.get(entry);
+    if (tombstone) {
+      wire.push(tombstoneToWire(tombstone));
+      sent.push({ entry, stamp: tombstone.deletedAt });
+      continue;
+    }
+
+    const row = rows.get(entry);
+    if (!row) {
+      sent.push({ entry, stamp: null });
+      continue;
+    }
+    // Another student's row on a shared device: not ours to send, not ours to
+    // discard either.
+    if ('userId' in row && row.userId !== userId) continue;
+
+    const stamp =
+      typeof row.updatedAt === 'string' ? row.updatedAt : new Date(0).toISOString();
+
+    wire.push(toWire(collection, { ...row, id, updatedAt: stamp, deletedAt: null } as SyncableRow));
+    // The stamp is recorded, not just the name: an edit landing while this
+    // request is in flight must keep the entry alive.
+    sent.push({ entry, stamp });
+  }
+
+  return { rows: wire, sent, more };
+}
+
 /** One request/response. Returns true when the account is fully caught up. */
 async function exchange(userId: string): Promise<boolean> {
   const db = getDatabase();
   const since = lastSyncedAt(userId);
 
-  /* ---- what this device has to offer ---- */
-
-  const pending: WireRow[] = [];
-
-  for (const collection of SYNCED_COLLECTIONS) {
-    for (const row of localRows(db, collection, userId)) {
-      if (!UUID.test(row.id)) continue;
-      if (since !== null && row.updatedAt <= since) continue;
-      pending.push(toWire(collection, row));
-    }
-  }
-
-  const syncable = new Set<string>(SYNC_COLLECTIONS);
-  for (const tombstone of db.tombstones) {
-    if (!syncable.has(tombstone.collection)) continue;
-    if (!UUID.test(tombstone.id)) continue;
-    if (since !== null && tombstone.deletedAt <= since) continue;
-    pending.push(tombstoneToWire(tombstone));
-  }
-
-  const batch = pending.slice(0, BATCH);
-  const response = await api.sync({ since, rows: batch });
+  const outgoing = drainOutbox(db, userId);
+  const response = await api.sync({ since, rows: outgoing.rows });
 
   /* ---- reconcile ---- */
 
@@ -321,11 +389,16 @@ async function exchange(userId: string): Promise<boolean> {
     });
   }
 
+  // Only now that the server has them: an interrupted sync must resume, not lose.
+  clearOutboxEntries(outgoing.sent);
+
+
   setLastSyncedAt(userId, response.syncedAt);
   setState({ conflicts });
 
   // More to pull, or more of our own still queued.
-  return !response.hasMore && pending.length <= BATCH;
+  return !response.hasMore && !outgoing.more;
+
 }
 
 /* -------------------------------- scheduling ------------------------------ */

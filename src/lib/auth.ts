@@ -15,7 +15,7 @@
  */
 
 import type { ID, User } from '@shared/types';
-import { DEFAULT_PREFERENCES, getDatabase, update } from './store';
+import { DEFAULT_PREFERENCES, enqueueAllRows, getDatabase, update } from './store';
 import { nowIso, uid } from './utils';
 import { trackEvent } from './analytics';
 import { ApiError, api, type SessionUser } from './api';
@@ -243,9 +243,17 @@ async function claimLocalAccount(email: string, password: string): Promise<AuthR
 
   update((current) => rekeyIds(current, local.id, serverUser.id));
   // Both watermarks go: the old id will never be used again, and the new id must
-  // start from nothing so every re-keyed row counts as a change to upload.
+  // start from nothing so the whole account is pulled fresh.
   forgetSyncState(local.id);
   forgetSyncState(serverUser.id);
+  /*
+   * And every row is queued for upload. The server has never seen this account,
+   * so all of it is new — and the queue entries written before the move name the
+   * old ids, which no longer exist. Without this the profile in particular would
+   * never arrive: its id is the user id, so re-keying renamed it.
+   */
+  enqueueAllRows();
+
 
   await mirrorAccount(serverUser, password, fullName);
   trackEvent('app_opened', serverUser.id);

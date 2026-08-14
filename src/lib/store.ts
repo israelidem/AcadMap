@@ -70,6 +70,22 @@ export interface Database {
   sessionUserId: ID | null;
   /** Deletes awaiting replication, and recent ones kept for other devices. */
   tombstones: Tombstone[];
+  /**
+   * Rows this device has changed and not yet handed to the server, as
+   * `collection:id` keys.
+   *
+   * An explicit queue, because the obvious alternative is wrong. Choosing what to
+   * push by comparing timestamps against the last sync looks equivalent and is
+   * not: a first sync of a long history is sent in batches, the sync clock moves
+   * on after each one, and every row that had not been sent yet then looks
+   * already synced. That is what left one account with its dashboard on the server
+   * and its academic record stranded on the phone.
+   *
+   * Entries are removed only once the server has accepted the row, so an
+   * interrupted sync resumes rather than loses. Re-sending a row that did arrive
+   * is harmless — the server upserts.
+   */
+  outbox: string[];
 
   users: User[];
   credentials: Credential[];
@@ -117,10 +133,11 @@ const STORAGE_KEY = 'acadmap.db.v1';
 /**
  * 2 when ids became UUIDs and rows gained sync bookkeeping; 3 when writes began
  * being stamped centrally, which is also when rows already saved without a stamp
- * had to be rescued. `load()` brings older snapshots forward; see
- * `migrations.ts`.
+ * had to be rescued; 4 when pushes moved to an explicit outbox, which every
+ * existing row is enqueued into so a half-synced account finishes uploading.
+ * `load()` brings older snapshots forward; see `migrations.ts`.
  */
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 /**
  * Collections that sync to the server, and so must carry `updatedAt` and
@@ -157,7 +174,9 @@ function emptyDatabase(): Database {
     version: DB_VERSION,
     sessionUserId: null,
     tombstones: [],
+    outbox: [],
     users: [],
+
 
     credentials: [],
     profiles: [],
@@ -224,6 +243,22 @@ function hydrate(parsed: Partial<Database>): Database {
     ) as unknown as Database;
 
     forgetAllSyncWatermarks();
+  }
+
+  if ((parsed.version ?? 1) < 4) {
+    /*
+     * Enqueues everything this device holds, because some of it never arrived.
+     *
+     * Pushes used to be chosen by timestamp: rows newer than the last completed
+     * sync. A long history goes up in batches, and the sync clock moved on after
+     * each batch, so from the second batch onwards the rows still waiting looked
+     * as though they had already been sent. Accounts came out half-uploaded —
+     * typically the dashboard's recent rows, with older records left behind.
+     *
+     * Re-queuing the lot is the repair. The server upserts, so rows that did
+     * arrive are simply written again with the same values.
+     */
+    next.outbox = withEverythingQueued(next);
   }
 
   return { ...next, version: DB_VERSION };
@@ -330,6 +365,7 @@ export function subscribe(listener: () => void): () => void {
  */
 function stampWrites(previous: Database, next: Database, at: string): Database {
   let result = next;
+  const queued: string[] = [];
 
   for (const key of SYNCED_COLLECTIONS) {
     const before = previous[key] as unknown as Array<Record<string, unknown>>;
@@ -343,7 +379,13 @@ function stampWrites(previous: Database, next: Database, at: string): Database {
     const stamped = after.map((row) => {
       const old = byId.get(row.id);
       if (old === row) return row;
-      if (!old) return typeof row.updatedAt === 'string' ? row : { ...row, updatedAt: at };
+      if (!old && typeof row.updatedAt === 'string') return row;
+
+      // Everything below is a local write, so it also joins the queue of rows
+      // owed to the server. Stamping alone was not enough: the stamp says when
+      // the row changed, the queue says it has not been sent.
+      queued.push(outboxKey(key, String(row.id)));
+      if (!old) return { ...row, updatedAt: at };
       if (old.updatedAt !== row.updatedAt) return row;
       changed = true;
       return { ...row, updatedAt: at };
@@ -356,17 +398,45 @@ function stampWrites(previous: Database, next: Database, at: string): Database {
     }
   }
 
+  if (queued.length > 0) {
+    const known = new Set(result.outbox);
+    const fresh = queued.filter((entry) => !known.has(entry));
+    if (fresh.length > 0) result = { ...result, outbox: [...result.outbox, ...fresh] };
+  }
+
   return result;
+}
+
+/**
+ * The moment to stamp the current write with, always after the previous one.
+ *
+ * A plain clock reading is not enough: two writes can land in the same
+ * millisecond, and then the second one is indistinguishable from the first. That
+ * matters because "has this row changed since the copy the server took?" is
+ * answered by comparing stamps — an edit sharing a stamp with the version that
+ * was just uploaded would be treated as already sent and never go.
+ */
+let lastStamp = '';
+
+function nextStamp(): string {
+  const now = nowIso();
+  if (now > lastStamp) {
+    lastStamp = now;
+    return now;
+  }
+  lastStamp = new Date(new Date(lastStamp).getTime() + 1).toISOString();
+  return lastStamp;
 }
 
 /** Applies an immutable update, persists it and notifies subscribers. */
 export function update(mutator: (current: Database) => Database): void {
   syncFromStorage();
   const previous = db;
-  db = stampWrites(previous, mutator(previous), nowIso());
+  db = stampWrites(previous, mutator(previous), nextStamp());
   persist();
   notify();
 }
+
 
 
 export function resetDatabase(): void {
@@ -401,27 +471,99 @@ export function replaceCollection<K extends keyof Database>(
 
 const SYNCED = new Set<string>(SYNCED_COLLECTIONS);
 
-/**
- * Stamps a row so the sync engine can order it against other devices' copies.
- *
- * Applied in these helpers rather than at each call site: every write goes
- * through them, and an unstamped row is invisible to sync — the silent kind of
- * bug where data simply never leaves the device.
- */
-function stamp<T>(key: string, row: T, at: string): T {
-  if (!SYNCED.has(key)) return row;
-  return { ...(row as Record<string, unknown>), updatedAt: at } as T;
+/** How a row is named in the outbox. */
+export function outboxKey(collection: string, id: ID): string {
+  return `${collection}:${id}`;
 }
 
-/** Insert helper for the array collections. */
+/** Every row and delete this device holds, queued, with no duplicates. */
+function withEverythingQueued(current: Database): string[] {
+  const queued = new Set(current.outbox);
+  for (const collection of SYNCED_COLLECTIONS) {
+    for (const row of current[collection] as unknown as Array<{ id?: ID }>) {
+      if (row.id) queued.add(outboxKey(collection, row.id));
+    }
+  }
+  for (const tombstone of current.tombstones) {
+    queued.add(outboxKey(tombstone.collection, tombstone.id));
+  }
+  return [...queued];
+}
+
+/**
+ * Queues everything, for when the whole account has to be uploaded again.
+ *
+ * Used after a local-only account is claimed and its rows are moved onto the id
+ * the server issued. Every row is new as far as the server is concerned, and the
+ * queue entries written before the move name ids that no longer exist.
+ */
+export function enqueueAllRows(): void {
+  update((current) => ({ ...current, outbox: withEverythingQueued(current) }));
+}
+
+
+/** The version of a queued row as it stands now: its stamp, or a delete's time. */
+function currentStamp(current: Database, entry: string): string | null {
+  const split = entry.indexOf(':');
+  const collection = split === -1 ? entry : entry.slice(0, split);
+  const id = entry.slice(split + 1);
+
+  const rows = current[collection as keyof Database] as unknown;
+  if (Array.isArray(rows)) {
+    const row = (rows as Array<Record<string, unknown>>).find((item) => item.id === id);
+    if (row) return typeof row.updatedAt === 'string' ? row.updatedAt : null;
+  }
+
+  const tombstone = current.tombstones.find(
+    (t) => t.id === id && t.collection === collection,
+  );
+  return tombstone?.deletedAt ?? null;
+}
+
+/**
+ * Forgets queue entries the server has accepted, and only those.
+ *
+ * Each entry is cleared against the version that was actually sent. A row edited
+ * while the request was in flight now carries a different stamp, and its entry
+ * stays: the server has the older copy, so the queue is still the only record
+ * that the newer one is owed. Clearing by name alone loses that edit silently —
+ * the row looks synced, and its stamp is already older than the sync that missed
+ * it, so nothing ever picks it up again.
+ *
+ * A `null` stamp means there is nothing left to send for that entry (the row is
+ * gone with no tombstone, or the id predates UUIDs) and it goes unconditionally.
+ */
+export function clearOutboxEntries(
+  sent: ReadonlyArray<{ entry: string; stamp: string | null }>,
+): void {
+  if (sent.length === 0) return;
+  const expected = new Map(sent.map((item) => [item.entry, item.stamp] as const));
+
+  update((current) => ({
+    ...current,
+    outbox: current.outbox.filter((entry) => {
+      if (!expected.has(entry)) return true;
+      const stamp = expected.get(entry) ?? null;
+      if (stamp === null) return false;
+      return currentStamp(current, entry) !== stamp;
+    }),
+  }));
+}
+
+
+/**
+ * Insert helper for the array collections.
+ *
+ * Stamping and queueing are left to `update()`, which sees every write including
+ * the ones that bypass these helpers.
+ */
 export function insert<K extends keyof Database>(
   key: K,
   row: Database[K] extends Array<infer R> ? R : never,
 ): void {
-  const at = nowIso();
   update((current) => ({
     ...current,
-    [key]: [...(current[key] as unknown as unknown[]), stamp(key as string, row, at)],
+    [key]: [...(current[key] as unknown as unknown[]), row],
   }));
 }
 
@@ -431,11 +573,10 @@ export function patchRow<T extends { id: ID }>(
   id: ID,
   patch: Partial<T>,
 ): void {
-  const at = nowIso();
   update((current) => ({
     ...current,
     [key]: (current[key] as unknown as T[]).map((row) =>
-      row.id === id ? stamp(key as string, { ...row, ...patch }, at) : row,
+      row.id === id ? { ...row, ...patch } : row,
     ),
   }));
 }
@@ -455,6 +596,8 @@ export function removeRow(key: keyof Database, id: ID): void {
     const rows = (current[key] as unknown as { id: ID }[]).filter((row) => row.id !== id);
     if (!SYNCED.has(collection)) return { ...current, [key]: rows };
 
+    const entry = outboxKey(collection, id);
+
     return {
       ...current,
       [key]: rows,
@@ -463,7 +606,12 @@ export function removeRow(key: keyof Database, id: ID): void {
         ...current.tombstones.filter((t) => !(t.id === id && t.collection === collection)),
         { id, collection, deletedAt: at },
       ],
+      // The delete is owed to the server too, and for the same reason: without a
+      // queue entry it would only be offered while it looked newer than the last
+      // sync, which a batched first upload quietly makes false.
+      outbox: current.outbox.includes(entry) ? current.outbox : [...current.outbox, entry],
     };
+
   });
 }
 
