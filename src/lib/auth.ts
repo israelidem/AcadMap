@@ -1,16 +1,26 @@
 /**
- * Authentication for the local-first MVP.
+ * Authentication.
  *
- * Passwords are never stored in plain text: each account gets a random salt and
- * a PBKDF2-SHA256 derived key. When the app is pointed at the Neon-backed API
- * the same flow runs server-side (see `api/auth.ts`), which is also where the
- * owner/admin role is authoritatively enforced.
+ * The account lives on the server; the device keeps a mirror of it. That order
+ * matters: an account that existed only in this browser's localStorage could not
+ * be signed into anywhere else, which is exactly the bug where correct details
+ * were rejected on a second device.
+ *
+ * So sign-in and registration go to the API first. On success the device stores
+ * its own copy of the credential — salt plus a PBKDF2-SHA256 derived key, never
+ * the password — which is what allows sign-in again later with no connection.
+ * If the server cannot be reached at all, the local copy is used; if the server
+ * is reachable and says no, that answer stands, because only it knows the
+ * current password.
  */
 
 import type { ID, User } from '@shared/types';
 import { DEFAULT_PREFERENCES, getDatabase, update } from './store';
 import { nowIso, uid } from './utils';
 import { trackEvent } from './analytics';
+import { ApiError, api, type SessionUser } from './api';
+import { syncNow } from './sync';
+
 
 const PBKDF2_ITERATIONS = 100_000;
 
@@ -71,21 +81,125 @@ export interface AuthResult {
   userId?: ID;
 }
 
+/**
+ * Brings the device's mirror in line with an account the server just confirmed.
+ *
+ * The server's user id is adopted verbatim, because every synced row is keyed by
+ * it: a locally invented id would make the same student look like two accounts.
+ * The credential is (re)derived from the password that just succeeded, so this
+ * device can also authenticate offline, and a password changed elsewhere is
+ * corrected here on the next successful sign-in.
+ *
+ * The profile and preference rows are created only if missing — a device that
+ * already knows this account must not have its profile blanked by a sign-in.
+ */
+async function mirrorAccount(
+  serverUser: SessionUser,
+  password: string,
+  fullName = '',
+): Promise<void> {
+  const salt = randomHex();
+  const hash = await hashPassword(password, salt);
+  const timestamp = nowIso();
+  const userId = serverUser.id;
+
+  update((current) => {
+    const existing = current.users.find((u) => u.id === userId);
+
+    const user: User = {
+      ...(existing ?? {
+        id: userId,
+        createdAt: timestamp,
+      }),
+      id: userId,
+      email: serverUser.email,
+      role: serverUser.role,
+      status: serverUser.status,
+      createdAt: existing?.createdAt ?? timestamp,
+      lastActiveAt: timestamp,
+    } as User;
+
+    const hasProfile = current.profiles.some((p) => p.userId === userId);
+
+    return {
+      ...current,
+      users: existing
+        ? current.users.map((u) => (u.id === userId ? user : u))
+        : [...current.users, user],
+      credentials: [
+        ...current.credentials.filter((c) => c.userId !== userId),
+        { userId, salt, hash, resetToken: null, resetExpiresAt: null },
+      ],
+      profiles: hasProfile
+        ? current.profiles
+        : [
+            ...current.profiles,
+            {
+              userId,
+              fullName: fullName.trim(),
+              institution: '',
+              faculty: '',
+              department: '',
+              programme: '',
+              level: '',
+              expectedGraduationYear: null,
+              avatarDataUrl: null,
+              gradingSystemId: null,
+              termStructure: 'SEMESTER',
+              onboardingCompletedAt: null,
+            },
+          ],
+      preferences: current.preferences[userId]
+        ? current.preferences
+        : { ...current.preferences, [userId]: { ...DEFAULT_PREFERENCES } },
+      sessionUserId: userId,
+    };
+  });
+
+  // Pull the account's data straight away: on a new device this is the moment
+  // the student expects their courses and results to appear.
+  void syncNow();
+}
+
+/**
+ * True when the API answered. A transport failure means the server had no say,
+ * and the device's own copy is then the best available authority.
+ */
+function serverSpoke(error: unknown): error is ApiError {
+  return error instanceof ApiError && !error.isOffline;
+}
+
 export async function register(
   email: string,
   password: string,
   fullName: string,
 ): Promise<AuthResult> {
   const normalized = email.trim().toLowerCase();
-  const db = getDatabase();
 
+  try {
+    const { user } = await api.register({ email: normalized, password, fullName });
+    await mirrorAccount(user, password, fullName);
+    trackEvent('registered', user.id);
+    return { ok: true, userId: user.id };
+  } catch (error) {
+    // "Email already taken", a weak password, a rate limit: the server's answer
+    // is the real one and must reach the student unchanged.
+    if (serverSpoke(error)) return { ok: false, error: error.message };
+  }
+
+  /*
+   * No connection. The account is created on the device so the student can start
+   * working immediately, and it becomes a real account when they next register or
+   * sign in online.
+   */
+  const db = getDatabase();
   if (db.users.some((u) => u.email === normalized)) {
     return { ok: false, error: 'An account with this email already exists.' };
   }
 
   const salt = randomHex();
   const hash = await hashPassword(password, salt);
-  const userId = uid('usr');
+  const userId = uid();
   const timestamp = nowIso();
 
   const user: User = {
@@ -131,12 +245,33 @@ export async function register(
 
 export async function login(email: string, password: string): Promise<AuthResult> {
   const normalized = email.trim().toLowerCase();
+
+  try {
+    const { user } = await api.login({ email: normalized, password });
+    if (user.status === 'SUSPENDED') {
+      return { ok: false, error: 'This account is suspended. Contact AcadMap support.' };
+    }
+
+    await mirrorAccount(user, password);
+    trackEvent('app_opened', user.id);
+    return { ok: true, userId: user.id };
+  } catch (error) {
+    if (serverSpoke(error)) return { ok: false, error: error.message };
+  }
+
+  /* ---- offline: fall back to the credential this device stored ---- */
+
   const db = getDatabase();
   const user = db.users.find((u) => u.email === normalized);
   const credential = user ? db.credentials.find((c) => c.userId === user.id) : undefined;
 
   // Same message for unknown email and wrong password (no account enumeration).
-  if (!user || !credential) return { ok: false, error: 'Incorrect email or password.' };
+  if (!user || !credential) {
+    return {
+      ok: false,
+      error: 'Incorrect email or password, or no connection to check them against.',
+    };
+  }
   if (user.status === 'SUSPENDED') {
     return { ok: false, error: 'This account is suspended. Contact AcadMap support.' };
   }
@@ -158,6 +293,7 @@ export async function login(email: string, password: string): Promise<AuthResult
   trackEvent('app_opened', user.id);
   return { ok: true, userId: user.id };
 }
+
 
 /**
  * Keeps the owner role in step with `OWNER_EMAIL`.
@@ -182,9 +318,26 @@ export function syncOwnerRole(): void {
   }));
 }
 
+/**
+ * Signs out here and on the server.
+ *
+ * The local session is cleared first so the UI responds immediately, and the
+ * server call is not awaited: a failed request must not leave someone stuck on a
+ * screen they asked to leave. The cookie is dropped by the API when it answers,
+ * and expires on its own if it never does.
+ *
+ * The sync watermark is deliberately kept. It belongs to the device, not the
+ * session, and discarding it would make the next sign-in re-download the whole
+ * account for no reason. The background loop is left running for the same
+ * reason: with no session it does nothing, and it is then already in place for
+ * whoever signs in next.
+ */
 export function logout(): void {
   update((current) => ({ ...current, sessionUserId: null }));
+  void api.logout().catch(() => {});
 }
+
+
 
 /**
  * Account recovery without email infrastructure: a single-use token is issued

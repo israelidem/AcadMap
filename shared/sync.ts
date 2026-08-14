@@ -217,7 +217,7 @@ export function applyResolutions<T extends SyncMeta>(
  * would resurrect the row. Keeping them for a retention window is the standard
  * trade: a device offline longer than this loses its deletes, not its data.
  */
-export function pruneTombstones<T extends SyncMeta>(
+export function pruneTombstones<T extends { deletedAt?: Timestamp | null }>(
   rows: T[],
   now: Timestamp,
   retentionDays = 60,

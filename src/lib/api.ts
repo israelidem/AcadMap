@@ -128,4 +128,36 @@ export const api = {
 
   sendFeedback: (input: { category: string; message: string }) =>
     request<{ id: ID }>('/feedback', { method: 'POST', body: input }),
+
+  /* --------------------------------- sync -------------------------------- */
+
+  /**
+   * One exchange of academic data with the account: this device's changes for
+   * everyone else's. See src/lib/sync.ts for how the result is applied.
+   */
+  sync: (input: SyncRequest) => request<SyncResponse>('/sync', { method: 'POST', body: input }),
 };
+
+export interface SyncWireRow {
+  collection: string;
+  id: ID;
+  data: Record<string, unknown>;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface SyncRequest {
+  /** Null on a device that has never synced, which asks for the whole account. */
+  since: string | null;
+  rows: SyncWireRow[];
+}
+
+export interface SyncResponse {
+  rows: SyncWireRow[];
+  /** The watermark to send as `since` next time. */
+  syncedAt: string;
+  /** True when the account had more changes than one response can carry. */
+  hasMore: boolean;
+}
+
+
