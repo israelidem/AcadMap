@@ -340,31 +340,93 @@ export function logout(): void {
 
 
 /**
- * Account recovery without email infrastructure: a single-use token is issued
- * and shown to the student. Swap for an emailed link when a free mail provider
- * is approved.
+ * What happened when recovery was requested.
+ *
+ * `sent` distinguishes the two honest outcomes, because the UI must not say
+ * "check your email" when no email was sent — that was the original complaint.
+ * A `code` comes back only from the offline path, where this device issues a
+ * recovery code itself because it cannot reach the server.
  */
-export function requestPasswordReset(email: string): { token: string } | { error: string } {
+export type ResetRequestResult =
+  | { ok: true; sent: true }
+  | { ok: true; sent: false; code: string }
+  | { ok: false; error: string };
+
+/**
+ * Starts account recovery.
+ *
+ * The server owns this: it holds the account, and it is the only side that can
+ * send mail. It answers the same way whether or not the address is registered,
+ * so nothing here reveals who has an account either.
+ *
+ * With no connection the device falls back to issuing a local recovery code,
+ * which is all a purely local account ever had. That path is genuinely useful —
+ * a student who cannot reach the network can still get back into the app on this
+ * device — but it is reported as `sent: false` so the screen tells the truth.
+ */
+export async function requestPasswordReset(email: string): Promise<ResetRequestResult> {
   const normalized = email.trim().toLowerCase();
+
+  try {
+    await api.requestPasswordReset({ email: normalized });
+    return { ok: true, sent: true };
+  } catch (error) {
+    // A missing mail provider (503), a rate limit (429) or a provider failure
+    // (502) are all real answers the student needs to see.
+    if (serverSpoke(error)) return { ok: false, error: error.message };
+  }
+
   const db = getDatabase();
   const user = db.users.find((u) => u.email === normalized);
-  if (!user) return { error: 'No account uses that email address.' };
+  if (!user) {
+    return {
+      ok: false,
+      error: 'No connection, and this device does not know that email address.',
+    };
+  }
 
-  const token = randomHex(12);
+  const code = randomHex(12);
   const expires = new Date(Date.now() + 30 * 60_000).toISOString();
   update((current) => ({
     ...current,
     credentials: current.credentials.map((c) =>
-      c.userId === user.id ? { ...c, resetToken: token, resetExpiresAt: expires } : c,
+      c.userId === user.id ? { ...c, resetToken: code, resetExpiresAt: expires } : c,
     ),
   }));
-  return { token };
+  return { ok: true, sent: false, code };
 }
 
+/**
+ * Finishes recovery with either an emailed link's token or an offline code.
+ *
+ * The server is asked first. If it declines, the same value is tried against
+ * this device's own code, so someone recovering offline is not turned away by an
+ * answer about a token the server never issued.
+ */
 export async function resetPassword(token: string, password: string): Promise<AuthResult> {
-  const db = getDatabase();
-  const credential = db.credentials.find((c) => c.resetToken === token.trim());
-  if (!credential) return { ok: false, error: 'This recovery code is not valid.' };
+  const trimmed = token.trim();
+  let serverError: string | null = null;
+
+  try {
+    const { user } = await api.resetPassword({ token: trimmed, password });
+    // A successful reset signs this device in, so mirror the account as a
+    // sign-in would and clear any stale local recovery code.
+    await mirrorAccount(user, password);
+    update((current) => ({
+      ...current,
+      credentials: current.credentials.map((c) =>
+        c.userId === user.id ? { ...c, resetToken: null, resetExpiresAt: null } : c,
+      ),
+    }));
+    return { ok: true, userId: user.id };
+  } catch (error) {
+    if (serverSpoke(error)) serverError = error.message;
+  }
+
+  const credential = getDatabase().credentials.find((c) => c.resetToken === trimmed);
+  if (!credential) {
+    return { ok: false, error: serverError ?? 'This recovery code is not valid.' };
+  }
   if (credential.resetExpiresAt && credential.resetExpiresAt < nowIso()) {
     return { ok: false, error: 'This recovery code has expired. Request a new one.' };
   }
@@ -381,6 +443,7 @@ export async function resetPassword(token: string, password: string): Promise<Au
   }));
   return { ok: true, userId: credential.userId };
 }
+
 
 export async function changePassword(
   userId: ID,

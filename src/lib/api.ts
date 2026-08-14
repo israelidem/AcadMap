@@ -105,6 +105,20 @@ export const api = {
 
   logout: () => request<{ ok: true }>('/auth/session', { method: 'DELETE' }),
 
+  /**
+   * Asks for a reset link by email.
+   *
+   * Answers the same whether or not the address has an account, so the caller
+   * must not read anything into success beyond "the request was accepted".
+   */
+  requestPasswordReset: (input: { email: string }) =>
+    request<{ ok: true }>('/auth/request-reset', { method: 'POST', body: input }),
+
+  /** Consumes a reset link and signs the device in with the new password. */
+  resetPassword: (input: { token: string; password: string }) =>
+    request<{ user: SessionUser }>('/auth/reset-password', { method: 'POST', body: input }),
+
+
   /* ------------------------------- profile ------------------------------- */
 
   profile: (signal?: AbortSignal) => request<{ profile: Profile }>('/profile', { signal }),
