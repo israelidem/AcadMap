@@ -114,7 +114,12 @@ function resolveGrade(system: GradingSystem, row: ParsedResultRow): string {
     if (closest && Math.abs(closest.point - row.gradePoint) <= 0.5) return closest.name;
   }
 
-  return system.rules[0]?.name ?? '';
+  /*
+   * Nothing to go on, so nothing is chosen. Defaulting to the first rule would
+   * quietly put an A against every unreadable row, and the student would have no
+   * reason to look twice; an empty grade holds the row back until they pick one.
+   */
+  return '';
 }
 
 /** Ties a parsed row to a course already recorded in the term, if one matches. */
@@ -151,6 +156,8 @@ export function ResultSheetImport({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [sourceName, setSourceName] = useState<string>();
+  /** Kept only to show the student what was read when a sheet will not parse. */
+  const [extracted, setExtracted] = useState('');
 
   const grades = system.rules.map((rule) => rule.name);
 
@@ -172,6 +179,7 @@ export function ResultSheetImport({
     const outcome = parseResultText(text);
     setNotes(outcome.notes);
     setSourceName(label);
+    setExtracted(text);
 
     if (outcome.rows.length === 0) {
       setRows(null);
@@ -299,6 +307,20 @@ export function ResultSheetImport({
 
       {error && <p className="am-error">{error}</p>}
 
+      {/*
+        When a sheet will not parse, the text that came out of it is far more useful
+        than an apology: the student can see whether the file had readable text at
+        all, and paste a corrected version straight into the box above.
+      */}
+      {extracted && (!rows || rows.length === 0) && (
+        <details className="rounded-xl border border-border p-3 text-xs">
+          <summary className="cursor-pointer font-medium">What was read from the file</summary>
+          <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono">
+            {extracted.slice(0, 4000)}
+          </pre>
+        </details>
+      )}
+
       {notes.length > 0 && (
         <ul className="am-hint list-disc pl-5">
           {notes.map((note) => (
@@ -369,6 +391,8 @@ export function ResultSheetImport({
                           value={row.grade}
                           onChange={(event) => patch(row.key, { grade: event.target.value })}
                         >
+                          {/* Unread grades stay empty rather than defaulting to a pass. */}
+                          <option value="">Choose…</option>
                           {grades.map((grade) => (
                             <option key={grade} value={grade}>
                               {grade}

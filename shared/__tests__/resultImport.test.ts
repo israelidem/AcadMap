@@ -126,7 +126,40 @@ describe('parseResultText', () => {
     expect(notes[0]).toMatch(/no course rows/i);
   });
 
+  it('does not mistake a "Grade Point" column for the grade column', () => {
+    // The layout most Nigerian portals export, and the reason grades imported blank.
+    const text = [
+      'S/N  COURSE CODE  COURSE TITLE  UNIT  SCORE  GRADE  GRADE POINT',
+      '1  CSC 201  Data Structures  3  72  B  4',
+      '2  MTH 101  Calculus I  4  85  A  5',
+    ].join('\n');
+
+    const { rows } = parseResultText(text);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      courseCode: 'CSC 201',
+      units: 3,
+      score: 72,
+      gradeName: 'B',
+      gradePoint: 4,
+      qualityPoints: 12,
+    });
+    expect(rows[1]).toMatchObject({ gradeName: 'A', qualityPoints: 20 });
+  });
+
+  it('still finds the grade when a row has fewer cells than the header', () => {
+    // PDF text does not always yield one cell per column; the letter is found
+    // wherever it sits rather than only where the header said it would be.
+    const text = ['CODE  TITLE  UNIT  SCORE  GRADE', 'CSC 201  Data Structures  3  B'].join('\n');
+
+    const { rows } = parseResultText(text);
+
+    expect(rows[0]).toMatchObject({ courseCode: 'CSC 201', units: 3, gradeName: 'B' });
+  });
+
   it('flags rows that arrived without units', () => {
+
     const { rows, notes } = parseResultText('Code,Title,Grade\nCSC 201,Data Structures,B');
 
     expect(rows[0].units).toBeNull();

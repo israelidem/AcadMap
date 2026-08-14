@@ -53,20 +53,25 @@ type Field = 'code' | 'name' | 'units' | 'score' | 'grade' | 'qp';
 /**
  * Which column a header cell describes.
  *
- * Order matters: "Course Code" and "Course Title" both contain "course", so the
- * more specific words are tested first.
+ * Order matters, and the order here is the result of real sheets rather than
+ * taste. "Course Code" and "Course Title" both contain "course", so the specific
+ * words go first. More subtly, points are tested before grades: a column headed
+ * "Grade Point" holds a number, not a letter, and reading it as the grade column
+ * both loses the number and leaves the real "Grade" column unclaimed — which is
+ * exactly how a sheet ends up importing with no grades at all.
  */
 function headerField(label: string): Field | null {
   const value = label.toLowerCase();
   if (!value) return null;
   if (/\bcodes?\b/.test(value)) return 'code';
   if (/unit|credit|\bcu\b|load/.test(value)) return 'units';
-  if (/score|mark|raw|%/.test(value)) return 'score';
+  if (/score|mark|raw|%|\btotal\b/.test(value)) return 'score';
+  if (/point|\bqp\b|\bgp\b|quality|weight/.test(value)) return 'qp';
   if (/grade|letter/.test(value)) return 'grade';
-  if (/\bqp\b|quality|point|\bgp\b|weight/.test(value)) return 'qp';
   if (/course|title|subject|description|name/.test(value)) return 'name';
   return null;
 }
+
 
 /**
  * Splits one line into cells.
@@ -142,30 +147,66 @@ function fromColumns(line: string, map: Partial<Record<Field, number>>): ParsedR
   row.courseName = tidyName(at('name'));
   row.units = toNumber(at('units'));
   row.score = toNumber(at('score'));
-  row.gradePoint = toNumber(at('qp'));
-  row.qualityPoints = null;
 
   const grade = at('grade').toUpperCase();
   if (GRADE.test(grade)) row.gradeName = grade;
+
+  /*
+   * Grades are the field most often lost, because text lifted out of a PDF does
+   * not always produce the same number of cells on every line — an empty cell, a
+   * wrapped title or a merged fragment shifts everything after it. So rather than
+   * trust the column position alone, any standalone letter cell counts as the
+   * grade. Nothing else in a result row looks like one.
+   */
+  if (!row.gradeName) {
+    const loose = cells.find(
+      (cell, index) =>
+        index !== map.code && index !== map.name && GRADE.test(cell.trim().toUpperCase()),
+    );
+    if (loose) row.gradeName = loose.trim().toUpperCase();
+  }
+
+  /*
+   * Where the columns gave nothing, fall back to reading the line by its shape.
+   * Column mapping is the better guess when it works, but a misaligned row should
+   * degrade to the heuristic rather than import blank.
+   */
+  const points = toNumber(at('qp'));
+  const shaped = fromShape(line);
+
+  if (shaped) {
+    if (!row.courseCode) row.courseCode = shaped.courseCode;
+    if (!row.courseName) row.courseName = shaped.courseName;
+    if (row.units === null) row.units = shaped.units;
+    if (row.score === null) row.score = shaped.score;
+    if (!row.gradeName) row.gradeName = shaped.gradeName;
+    if (points === null) {
+      row.gradePoint = shaped.gradePoint;
+      row.qualityPoints = shaped.qualityPoints;
+    }
+  }
 
   /*
    * A "points" column is either points per unit or the course total, and sheets
    * label both the same way. The scale settles it: no per-unit grade point on a
    * 4.0 or 5.0 scale exceeds 5, so anything larger is the total for the course.
    */
-  if (row.gradePoint !== null && row.units) {
-    if (row.gradePoint > 5) {
-      row.qualityPoints = row.gradePoint;
-      row.gradePoint = row.qualityPoints / row.units;
-    } else {
-      row.qualityPoints = row.gradePoint * row.units;
+  if (points !== null) {
+    row.gradePoint = points;
+    if (row.units) {
+      if (points > 5) {
+        row.qualityPoints = points;
+        row.gradePoint = points / row.units;
+      } else {
+        row.qualityPoints = points * row.units;
+      }
     }
   }
-
 
   if (!row.courseCode && !row.courseName) return null;
   return row;
 }
+
 
 /**
  * Reads a line with no header to go by.

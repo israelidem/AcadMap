@@ -114,8 +114,21 @@ GET    /api/admin/overview                                 (owner)
 
 ## Known gaps
 
-The React app currently reads and writes through the local-storage store; the API
-handlers and schema above are the server-side counterpart and are not yet wired
-into the UI's data layer. Repeated-course rules are modelled (`replaces_id`) but
-the configurable academic-rules module is deliberately deferred, as is email
-delivery for password recovery.
+The React app reads and writes through the local-storage store and syncs it to
+Postgres in the background (`src/lib/sync.ts` ↔ `POST /api/sync`), which is what
+makes the same account work on a phone and a laptop and keeps the app usable
+offline. That means the store is the source of truth for the UI and the database is
+the durable copy, per row, last-write-wins with conflicts reported. Repeated-course
+rules are modelled (`replaces_id`) but the configurable academic-rules module is
+deliberately deferred.
+
+
+Password recovery sends a real email, over Brevo's or Resend's HTTP API depending
+on which key is set (`BREVO_API_KEY` or `RESEND_API_KEY`, plus `MAIL_FROM`). With
+neither, the endpoint answers 503 and the app says email is not configured rather
+than claiming a message is on its way. Neon Auth is not used: it replaces the
+whole identity layer — its own user store, sessions and email flows — and this app
+already owns `users`, `sessions` and `password_resets`, so adopting it would be a
+rewrite of authentication rather than a way to send one email.
+
+
