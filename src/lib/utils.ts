@@ -4,13 +4,46 @@ export function cn(...inputs: ClassValue[]): string {
   return clsx(inputs);
 }
 
+/**
+ * Generates a row id.
+ *
+ * Ids are real UUIDs because rows are created on the device — including with no
+ * connection — and must keep their identity when they reach Postgres, where
+ * every primary key is a `UUID`. A prefixed string like `crs_a1b2` cannot be
+ * stored in a UUID column, and letting the server assign ids instead would make
+ * offline creation impossible.
+ *
+ * `prefix` is accepted and ignored. Call sites read better naming the kind of
+ * row they are making, and keeping the parameter avoided touching every one of
+ * them when the format changed.
+ */
 export function uid(prefix = 'id'): string {
-  const random =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID().slice(0, 12)
-      : Math.random().toString(36).slice(2, 10);
-  return `${prefix}_${random}`;
+  void prefix;
+  // Held in a local so the feature checks below do not narrow the global away.
+  const webCrypto: Crypto | undefined = typeof crypto === 'undefined' ? undefined : crypto;
+
+  if (typeof webCrypto?.randomUUID === 'function') return webCrypto.randomUUID();
+
+  // Fallback for the rare environment without randomUUID: still a valid v4, so
+  // the database accepts it.
+  const bytes = new Uint8Array(16);
+  if (typeof webCrypto?.getRandomValues === 'function') {
+    webCrypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 16; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 1
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+
+/** True for a canonical UUID, used to spot ids minted before the format change. */
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 
 export function nowIso(): string {
   return new Date().toISOString();
