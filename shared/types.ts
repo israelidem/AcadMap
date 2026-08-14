@@ -267,9 +267,18 @@ export interface AppNotification {
   title: string;
   body: string;
   kind: 'SESSION' | 'EXAM' | 'ASSIGNMENT' | 'MISSED' | 'ANNOUNCEMENT';
+  /**
+   * The row this notification was raised from (an announcement id, say).
+   *
+   * Reminders dedupe in memory, which is enough while a tab is open. Anything
+   * raised from stored data needs a stored key, or every reload would deliver
+   * the same announcement again.
+   */
+  sourceId: ID | null;
   readAt: Timestamp | null;
   createdAt: Timestamp;
 }
+
 
 export type FeedbackCategory = 'BUG' | 'FEATURE_REQUEST' | 'GENERAL_FEEDBACK';
 export type FeedbackStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';

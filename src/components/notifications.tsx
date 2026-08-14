@@ -24,14 +24,50 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   return Notification.requestPermission();
 }
 
-function showBrowser(title: string, body: string): void {
+function showBrowser(title: string, body: string, tag?: string): void {
   if (!supportsBrowserNotifications() || Notification.permission !== 'granted') return;
   try {
-    new Notification(title, { body, icon: '/favicon.svg' });
+    // `tag` lets the browser collapse a repeat of the same item rather than
+    // stacking duplicates in the tray.
+    new Notification(title, { body, icon: '/favicon.svg', tag });
   } catch {
     // Some browsers block constructing notifications outside a service worker.
   }
 }
+
+/**
+ * Delivers published announcements to the notification centre.
+ *
+ * Announcements used to render as a banner on the dashboard, which every
+ * student scrolled past. They are now ordinary notifications: they appear in the
+ * bell, count as unread, and raise a browser notification when the student has
+ * allowed those.
+ *
+ * `sourceId` makes the write idempotent, so an announcement is delivered once
+ * per student rather than on every mount, and stays delivered after a reload.
+ */
+export function useAnnouncementDelivery(): void {
+  const { user, preferences } = useSession();
+  const { announcements } = useUserData(user?.id ?? null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    for (const announcement of announcements) {
+      const added = pushNotification(user.id, {
+        title: announcement.title,
+        body: announcement.body,
+        kind: 'ANNOUNCEMENT',
+        sourceId: announcement.id,
+      });
+      // Only interrupt for something the student has not already been told.
+      if (added && preferences.notificationsEnabled) {
+        showBrowser(announcement.title, announcement.body, `announcement-${announcement.id}`);
+      }
+    }
+  }, [user, announcements, preferences.notificationsEnabled]);
+}
+
 
 /** Watches sessions, exams and deadlines and raises reminders once each. */
 export function useReminders(): void {

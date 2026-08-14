@@ -4,7 +4,8 @@ import { Suspense, lazy, type ReactNode } from 'react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { PageLoader } from './components/ui';
 import { AppLayout } from './components/layout';
-import { useReminders } from './components/notifications';
+import { useAnnouncementDelivery, useReminders } from './components/notifications';
+
 import { useSession } from './lib/hooks';
 import Landing from './pages/Landing';
 
@@ -66,6 +67,8 @@ function GuestOnly({ children }: { children: ReactNode }) {
 
 export default function App() {
   useReminders();
+  useAnnouncementDelivery();
+
 
   return (
     <Suspense fallback={<PageLoader />}>

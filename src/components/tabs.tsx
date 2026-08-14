@@ -22,7 +22,13 @@ export function Tabs({
     <div
       role="tablist"
       aria-label="Sections"
-      className={cn('mb-4 flex gap-1 overflow-x-auto border-b border-border', className)}
+      className={cn(
+        // `am-scroll-x` lets a long tab strip scroll to the screen edge on a
+        // phone instead of squeezing the labels.
+        'am-scroll-x mb-4 flex gap-1 border-b border-border',
+        className,
+      )}
+
     >
       {tabs.map((tab) => {
         const active = tab.value === value;

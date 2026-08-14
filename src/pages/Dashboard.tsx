@@ -26,7 +26,10 @@ export default function Dashboard() {
   const toast = useToast();
   const metrics = useAcademicMetrics();
   const planner = usePlannerMetrics();
-  const { courses, topics, events, tasks, terms, announcements } = useUserData(user?.id ?? null);
+  // Announcements are delivered to the notification centre (see
+  // `useAnnouncementDelivery`) rather than shown as a banner here.
+  const { courses, topics, events, tasks, terms } = useUserData(user?.id ?? null);
+
 
   if (!user) return null;
 
@@ -65,21 +68,8 @@ export default function Dashboard() {
         }
       />
 
-      {announcements.length > 0 && (
-        <div className="mb-4 grid gap-2">
-          {announcements.slice(0, 2).map((announcement) => (
-            <div
-              key={announcement.id}
-              className="rounded-xl border border-brand/30 bg-brand-soft px-4 py-3 text-sm"
-            >
-              <p className="font-medium">{announcement.title}</p>
-              <p className="text-muted">{announcement.body}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
         <Stat
           label="CGPA"
           tone="brand"

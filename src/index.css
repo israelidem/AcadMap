@@ -44,7 +44,31 @@
 
   body {
     @apply bg-bg text-fg font-sans antialiased;
+    /*
+     * Nothing in AcadMap is meant to scroll sideways at the page level. A single
+     * long word (an email, a share token, a course title pasted from a PDF) used
+     * to widen the whole document on a phone and push the layout off-screen.
+     * Wide content now scrolls inside its own container — see `.am-scroll-x`.
+     */
+    overflow-x: hidden;
   }
+
+  /*
+   * Unbroken strings must wrap rather than overflow. `break-word` alone does not
+   * break a 40-character token, which is exactly the case that broke layouts.
+   */
+  h1,
+  h2,
+  h3,
+  p,
+  li,
+  td,
+  th,
+  label,
+  span {
+    overflow-wrap: anywhere;
+  }
+
 
   /* Visible, consistent keyboard focus everywhere. */
   :focus-visible {
@@ -103,4 +127,24 @@
   .am-skeleton {
     @apply animate-pulse rounded-lg bg-surface-2;
   }
+
+  /*
+   * Sideways scroller for content that genuinely cannot shrink — a tab strip, a
+   * results table, a chart. Scrolling one container is far better than either
+   * truncating the data or letting it push the page off the screen.
+   */
+  .am-scroll-x {
+    @apply -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    /* Hints that there is more to the right without needing a visible scrollbar. */
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+  }
+
+  .am-scroll-x > * {
+    scroll-snap-align: start;
+  }
 }
+
+

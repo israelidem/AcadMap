@@ -781,22 +781,43 @@ export function recordSnapshotView(token: string): void {
 /* Notifications                                                              */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Adds a notification to the student's centre.
+ *
+ * When `sourceId` is given the write is idempotent: the same source can only
+ * ever produce one notification per student, so a published announcement is
+ * not re-delivered on every page load.
+ *
+ * @returns true when a row was actually added.
+ */
 export function pushNotification(
   userId: ID,
-  notification: Pick<AppNotification, 'title' | 'body' | 'kind'>,
-): void {
+  notification: Pick<AppNotification, 'title' | 'body' | 'kind'> &
+    Partial<Pick<AppNotification, 'sourceId'>>,
+): boolean {
+  const sourceId = notification.sourceId ?? null;
+  if (
+    sourceId !== null &&
+    getDatabase().notifications.some((row) => row.userId === userId && row.sourceId === sourceId)
+  ) {
+    return false;
+  }
+
   const row: AppNotification = {
     id: uid('ntf'),
     userId,
     readAt: null,
     createdAt: nowIso(),
     ...notification,
+    sourceId,
   };
   update((current) => ({
     ...current,
     notifications: [row, ...current.notifications].slice(0, 100),
   }));
+  return true;
 }
+
 
 export function markNotificationRead(userId: ID, notificationId: ID): void {
   update((current) => ({

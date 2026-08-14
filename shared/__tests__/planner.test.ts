@@ -224,7 +224,56 @@ describe('generateStudyPlan', () => {
     );
   });
 
+  it('still plans for a course the student has not broken into topics', () => {
+    // The common first run: courses and availability exist, topics do not.
+    const result = generateStudyPlan(plannerInput({ topics: [] }));
+
+    expect(result.sessions.length).toBeGreaterThan(0);
+    for (const session of result.sessions) {
+      expect(session.courseId).toBe('c1');
+      expect(session.topicId).toBeNull();
+    }
+  });
+
+  it('counts completed work against a topicless course instead of replanning it', () => {
+    const done: StudySession = {
+      id: 's-done',
+      userId: 'u1',
+      courseId: 'c1',
+      topicId: null,
+      date: '2026-03-01',
+      startTime: '17:00',
+      endTime: '20:00',
+      durationMinutes: 180,
+      status: 'COMPLETED',
+      generated: true,
+      completedAt: '2026-03-01T20:00:00.000Z',
+    };
+
+    // A 3-unit course budgets 180 minutes, all of which is already done.
+    const result = generateStudyPlan(
+      plannerInput({ topics: [], existingSessions: [done] }),
+    );
+
+    expect(result.sessions).toHaveLength(0);
+  });
+
+  it('prefers topics over the course-level fallback when both could apply', () => {
+    const result = generateStudyPlan(
+      plannerInput({
+        courses: [course('c1'), course('c2')],
+        topics: [topic('p1', 'c1')],
+      }),
+    );
+
+    // c1 is planned through its topic; c2 only through the fallback.
+    expect(result.sessions.some((s) => s.courseId === 'c1' && s.topicId === 'p1')).toBe(true);
+    expect(result.sessions.some((s) => s.courseId === 'c1' && s.topicId === null)).toBe(false);
+    expect(result.sessions.some((s) => s.courseId === 'c2' && s.topicId === null)).toBe(true);
+  });
+
   it('schedules nothing when the student has no availability', () => {
+
     const result = generateStudyPlan(plannerInput({ availability: [] }));
 
     expect(result.sessions).toHaveLength(0);

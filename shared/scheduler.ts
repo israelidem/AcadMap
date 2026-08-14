@@ -72,14 +72,26 @@ export interface PlannerResult {
 const PRIORITY_WEIGHT = { HIGH: 1.5, MEDIUM: 1.15, LOW: 1 } as const;
 const DIFFICULTY_WEIGHT = { HARD: 1.4, NORMAL: 1.1, EASY: 1 } as const;
 
+/**
+ * Revision minutes assumed per credit unit for a course with no topics yet.
+ *
+ * Breaking a course into topics is the better input, but most students add
+ * courses and availability and expect a plan straight away. One hour of
+ * revision per credit unit over the horizon is a conservative default that
+ * produces a usable schedule without inventing topic names.
+ */
+export const MINUTES_PER_UNIT = 60;
+
 interface WorkItem {
   courseId: ID;
-  topicId: ID;
+  /** Null for course-level work, i.e. a course that has no topics. */
+  topicId: ID | null;
   title: string;
   remainingMinutes: number;
   deadline: DateStr | null;
   score: number;
 }
+
 
 interface FreeInterval {
   date: DateStr;
@@ -107,13 +119,14 @@ function urgency(deadline: DateStr | null, today: DateStr): number {
 }
 
 export function buildWorkItems(input: PlannerInput): WorkItem[] {
-  const { courses, topics, events, config } = input;
+  const { courses, topics, events, existingSessions, config } = input;
   const active = courses.filter((c) => !c.archived);
   const byId = new Map(active.map((c) => [c.id, c]));
 
   const items: WorkItem[] = [];
   for (const topic of topics) {
     const course = byId.get(topic.courseId);
+
     if (!course) continue;
     if (topic.done) continue;
 
@@ -137,8 +150,46 @@ export function buildWorkItems(input: PlannerInput): WorkItem[] {
     });
   }
 
-  return items.sort((a, b) => b.score - a.score || a.topicId.localeCompare(b.topicId));
+  /*
+   * Course-level fallback.
+   *
+   * A course the student has not broken into topics still needs revising, and
+   * "add courses, set availability, generate" is the path almost everyone takes
+   * first. Without this the planner returned an empty plan and looked broken.
+   * Minutes already completed against the course count as progress so a
+   * regenerated plan does not repeat work that is done.
+   */
+  const coursesWithOutstandingTopics = new Set(items.map((item) => item.courseId));
+  for (const course of active) {
+    if (coursesWithOutstandingTopics.has(course.id)) continue;
+    if (topics.some((topic) => topic.courseId === course.id)) continue; // fully covered
+
+    const completedMinutes = existingSessions
+      .filter((session) => session.courseId === course.id && session.status === 'COMPLETED')
+      .reduce((sum, session) => sum + session.durationMinutes, 0);
+    const remaining = Math.max(0, Math.round(course.units * MINUTES_PER_UNIT) - completedMinutes);
+    if (remaining <= 0) continue;
+
+    const deadline = courseDeadline(course, events);
+    items.push({
+      courseId: course.id,
+      topicId: null,
+      title: `${course.name} revision`,
+      remainingMinutes: remaining,
+      deadline,
+      score:
+        urgency(deadline, config.startDate) *
+        PRIORITY_WEIGHT[course.priority] *
+        DIFFICULTY_WEIGHT.NORMAL *
+        (1 + remaining / 600),
+    });
+  }
+
+  // Ties break on a stable key so the plan stays deterministic.
+  const key = (item: WorkItem) => item.topicId ?? item.courseId;
+  return items.sort((a, b) => b.score - a.score || key(a).localeCompare(key(b)));
 }
+
 
 /**
  * Expands weekly availability into concrete intervals for the horizon and
@@ -202,9 +253,12 @@ export function generateStudyPlan(input: PlannerInput): PlannerResult {
   const sessions: StudySession[] = [];
 
   if (items.length === 0) {
-    notes.push('No outstanding topics to schedule. Add topics to your courses first.');
+    notes.push(
+      'Nothing left to schedule. Add a course for this term, or mark fewer topics as done.',
+    );
     return { sessions, unscheduledMinutes: 0, notes };
   }
+
   if (intervals.length === 0) {
     notes.push('No free study time found. Add availability in Planner → Availability.');
     return {
