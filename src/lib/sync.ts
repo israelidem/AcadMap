@@ -276,7 +276,16 @@ function drainOutbox(
     const collection = entry.slice(0, split);
     const id = entry.slice(split + 1);
 
-    if (!syncable.has(collection) || !UUID.test(id)) {
+    /*
+     * A row id is either a UUID this app generated or the account id itself: the
+     * profile row is keyed by it, and Better Auth's ids are its own opaque
+     * strings, not UUIDs. Testing for a UUID alone dropped the profile from every
+     * push — quietly, because an entry with nothing to send is simply cleared —
+     * so academic data reached the server while the profile and the "setup
+     * finished" flag never left the device, and a second device found no profile
+     * and offered onboarding again.
+     */
+    if (!syncable.has(collection) || !(UUID.test(id) || id === userId)) {
       sent.push({ entry, stamp: null });
       continue;
     }

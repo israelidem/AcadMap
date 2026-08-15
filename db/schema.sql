@@ -470,7 +470,14 @@ CREATE INDEX IF NOT EXISTS feedback_user_idx ON feedback(user_id, created_at DES
 CREATE TABLE IF NOT EXISTS sync_rows (
   user_id     TEXT        NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
   collection  TEXT        NOT NULL,
-  row_id      UUID        NOT NULL,
+  /*
+   * TEXT, not UUID. Most row ids are UUIDs the client generates, but the profile
+   * row is keyed by the account id, and Better Auth issues those as its own
+   * strings — which is why "user"."id" is TEXT too. While this column was UUID the
+   * profile could not be stored at all, so academic data synced between devices
+   * and the profile, including the "academic setup finished" flag, never did.
+   */
+  row_id      TEXT        NOT NULL,
   data        JSONB       NOT NULL,
   updated_at  TIMESTAMPTZ NOT NULL,
   /* Non-null marks a delete. Kept as a tombstone so a device that has been
@@ -542,3 +549,14 @@ ALTER TABLE events
 ALTER TABLE profiles
   ADD COLUMN IF NOT EXISTS term_structure TEXT NOT NULL DEFAULT 'SEMESTER'
   CHECK (term_structure IN ('SEMESTER', 'TRIMESTER', 'QUARTER', 'CUSTOM'));
+
+/*
+ * A synced row id is not always a UUID: the profile row is keyed by the account
+ * id, which Better Auth issues as its own string. Databases created before this
+ * have row_id as UUID, which rejected the profile outright — every device kept its
+ * academic data in step while the profile, and the flag that says academic setup
+ * is finished, never left it. Widening is lossless: every existing UUID is a
+ * perfectly good text value, and re-running this is a no-op.
+ */
+ALTER TABLE sync_rows
+  ALTER COLUMN row_id TYPE TEXT;

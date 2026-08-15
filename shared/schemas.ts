@@ -317,11 +317,27 @@ export const SYNC_COLLECTIONS = [
   'feedback',
 ] as const;
 
-const uuidSchema = z.string().uuid();
+/**
+ * The id of a synced row.
+ *
+ * Not `uuid()`, and that is deliberate. Most rows are UUIDs the client generates,
+ * but the profile and preference rows are keyed by the account id, and Better Auth
+ * issues those as its own opaque strings — the `"user"."id"` column is TEXT for the
+ * same reason. Requiring a UUID here meant the profile was rejected from every
+ * push, silently: courses and results reached the server while the profile, and
+ * with it the "academic setup finished" flag, never did. A second device then had
+ * no profile to find and showed the onboarding form again.
+ *
+ * The shape is still constrained, because the value becomes a primary key: url-safe
+ * characters only, and long enough that it cannot collide by accident.
+ */
+const rowIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{16,64}$/, 'A row id must be a UUID or an account id');
 
 export const syncRowSchema = z.object({
   collection: z.enum(SYNC_COLLECTIONS),
-  id: uuidSchema,
+  id: rowIdSchema,
   /**
    * The row as the client stores it. Deliberately opaque — the server replicates
    * academic data, it does not interpret it — but capped so one device cannot

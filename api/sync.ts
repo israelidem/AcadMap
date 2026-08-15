@@ -66,7 +66,7 @@ const UPSERT = `
   INSERT INTO sync_rows (user_id, collection, row_id, data, updated_at, deleted_at)
   SELECT $1, x.collection, x.row_id, x.data, x.updated_at, x.deleted_at
     FROM jsonb_to_recordset($2::jsonb)
-      AS x(collection text, row_id uuid, data jsonb,
+      AS x(collection text, row_id text, data jsonb,
            updated_at timestamptz, deleted_at timestamptz)
   ON CONFLICT (user_id, collection, row_id) DO UPDATE
     SET data       = EXCLUDED.data,
@@ -116,7 +116,7 @@ const REJECTED = `
 
     FROM sync_rows s
     JOIN jsonb_to_recordset($2::jsonb)
-      AS x(collection text, row_id uuid, updated_at timestamptz)
+      AS x(collection text, row_id text, updated_at timestamptz)
       ON x.collection = s.collection AND x.row_id = s.row_id
    WHERE s.user_id = $1
      AND s.updated_at <> x.updated_at`;
