@@ -25,10 +25,26 @@ export default async function handler(_request: Request): Promise<Response> {
     },
   };
 
+  /*
+   * Each import is raced against a timer: the first version of this endpoint hit
+   * Vercel's function timeout and reported nothing at all, which told us only
+   * that some import never settles. Racing names the culprit instead of hanging.
+   */
+  const withTimeout = async (work: Promise<unknown>, ms: number) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'TIMED OUT'>((resolve) => {
+      timer = setTimeout(() => resolve('TIMED OUT'), ms);
+    });
+    try {
+      return await Promise.race([work.then(() => 'loaded' as const), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
   for (const specifier of ['pg', 'better-auth', '@better-auth/infra', './_lib/auth']) {
     try {
-      await import(specifier);
-      report[specifier] = 'loaded';
+      report[specifier] = await withTimeout(import(specifier), 2000);
     } catch (error) {
       const err = error as Error & { code?: string };
       report[specifier] = {
