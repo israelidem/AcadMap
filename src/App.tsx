@@ -37,6 +37,16 @@ function RequireAuth({ children }: { children: ReactNode }) {
   if (!onboarded && location.pathname !== '/onboarding') {
     return <Navigate to="/onboarding" replace />;
   }
+  /*
+   * The reverse also has to hold. A sign-in on a new device only waits so long
+   * for the account to arrive, so a student on a slow connection can be sent to
+   * the setup form and then have their finished profile land a moment later —
+   * leaving them filling in details they completed months ago. Sending them on as
+   * soon as the profile shows up means a late pull repairs the screen itself.
+   */
+  if (onboarded && location.pathname === '/onboarding') {
+    return <Navigate to="/app" replace />;
+  }
   return <>{children}</>;
 }
 

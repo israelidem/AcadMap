@@ -124,14 +124,62 @@ async function pullAccount(): Promise<void> {
 }
 
 /**
+ * Creates the rows a brand-new device needs, but only if the account really has
+ * none.
+ *
+ * This runs *after* the first pull, and that order is the whole point. Writing a
+ * blank profile at sign-in and pulling afterwards cost real data: the placeholder
+ * was stamped with the moment of sign-in, which made it newer than the profile on
+ * the server, so the merge preferred the blank one. The student was walked through
+ * onboarding on the second device, and because that blank row was queued like any
+ * other edit, it was then pushed back and overwrote the good profile everywhere.
+ *
+ * Creating these rows only when the pull came back empty keeps the offline case
+ * working — a genuinely new account still gets a profile to fill in — without ever
+ * putting an empty row in front of a real one.
+ */
+function scaffoldLocalAccount(userId: ID, fullName: string): void {
+  update((current) => {
+    const hasProfile = current.profiles.some((p) => p.userId === userId);
+    if (hasProfile && current.preferences[userId]) return current;
+
+    return {
+      ...current,
+      profiles: hasProfile
+        ? current.profiles
+        : [
+            ...current.profiles,
+            {
+              id: userId,
+              userId,
+              fullName: fullName.trim(),
+              institution: '',
+              faculty: '',
+              department: '',
+              programme: '',
+              level: '',
+              expectedGraduationYear: null,
+              avatarDataUrl: null,
+              gradingSystemId: null,
+              termStructure: 'SEMESTER',
+              onboardingCompletedAt: null,
+            },
+          ],
+      preferences: current.preferences[userId]
+        ? current.preferences
+        : { ...current.preferences, [userId]: { ...DEFAULT_PREFERENCES } },
+    };
+  });
+}
+
+/**
  * Brings the device's mirror in line with the account the server just confirmed.
  *
  * The server's user id is adopted verbatim, because every synced row is keyed by
  * it: a locally invented id would make one student look like two accounts.
  *
- * The profile and preference rows are created only when missing — a device that
- * already knows this account must not have its profile blanked by a sign-in, and
- * the real profile is about to arrive from the server anyway.
+ * Only the user row is written here. The profile and preferences are left to
+ * `scaffoldLocalAccount` after the pull, for the reasons set out there.
  */
 async function mirrorAccount(serverUser: ServerUser, fullName = ''): Promise<void> {
   const timestamp = nowIso();
@@ -150,41 +198,17 @@ async function mirrorAccount(serverUser: ServerUser, fullName = ''): Promise<voi
       lastActiveAt: timestamp,
     } as User;
 
-    const hasProfile = current.profiles.some((p) => p.userId === userId);
-
     return {
       ...current,
       users: existing
         ? current.users.map((u) => (u.id === userId ? user : u))
         : [...current.users, user],
-      profiles: hasProfile
-        ? current.profiles
-        : [
-            ...current.profiles,
-            {
-              id: userId,
-              userId,
-              fullName: (fullName || serverUser.name || '').trim(),
-              institution: '',
-              faculty: '',
-              department: '',
-              programme: '',
-              level: '',
-              expectedGraduationYear: null,
-              avatarDataUrl: null,
-              gradingSystemId: null,
-              termStructure: 'SEMESTER',
-              onboardingCompletedAt: null,
-            },
-          ],
-      preferences: current.preferences[userId]
-        ? current.preferences
-        : { ...current.preferences, [userId]: { ...DEFAULT_PREFERENCES } },
       sessionUserId: userId,
     };
   });
 
   await pullAccount();
+  scaffoldLocalAccount(userId, fullName || serverUser.name || '');
 }
 
 /* -------------------------------------------------------------------------- */
