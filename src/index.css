@@ -150,6 +150,62 @@
     background-position: 0 0;
   }
 
+  /* ------------------------------ Back office ------------------------------ */
+
+  /*
+   * The owner console is the registry's own desk copy of the same record: same
+   * violet ink, harder stock. Re-declaring the tokens inside one wrapper shifts
+   * the entire console from warm manila to cool graphite without a single
+   * `admin:`-prefixed utility anywhere in the markup — every `bg-surface`,
+   * `border-rule` and `text-muted` below simply resolves differently.
+   *
+   * It matters that it looks unlike the student app: this is the one screen where
+   * an accidental click suspends somebody's account.
+   */
+  .am-ops {
+    --am-bg: 214 217 221; /* #D6D9DD cool ledger stock */
+    --am-surface: 246 247 249; /* #F6F7F9 */
+    --am-surface-2: 230 233 237; /* #E6E9ED */
+    --am-border: 183 189 197; /* #B7BDC5 */
+    --am-rule: 201 206 213; /* #C9CED5 */
+    --am-fg: 21 24 31; /* #15181F graphite */
+    --am-muted: 86 93 106; /* #565D6A */
+  }
+
+  .dark .am-ops {
+    --am-bg: 14 14 21; /* #0E0E15 — a stop darker than the student app */
+    --am-surface: 22 22 32; /* #161620 */
+    --am-surface-2: 31 31 45; /* #1F1F2D */
+    --am-border: 54 54 73; /* #363649 */
+    --am-rule: 41 41 57; /* #292939 */
+    --am-fg: 232 232 241;
+    --am-muted: 148 151 170;
+  }
+
+  /* Filing, not publishing: corners come off almost entirely in the back office. */
+  .am-ops .am-card,
+  .am-ops .am-input,
+  .am-ops button {
+    @apply rounded-sm;
+  }
+
+  .am-ops .am-tab-label::before {
+    @apply rounded-none;
+  }
+
+  /*
+   * Graph paper. The activity chart is the only place in AcadMap that earns
+   * gridlines, because reading it means comparing one day against another rather
+   * than judging a single figure.
+   */
+  .am-plot {
+    background-image:
+      repeating-linear-gradient(to right, rgb(var(--am-rule) / 0.7) 0 1px, transparent 1px 25px),
+      repeating-linear-gradient(to bottom, rgb(var(--am-rule) / 0.7) 0 1px, transparent 1px 25px);
+    background-position: 0 100%;
+  }
+
+
   /* ------------------------------- Structure ------------------------------- */
 
   /*
