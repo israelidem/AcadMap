@@ -7,9 +7,9 @@
  * than accepted from the request.
  */
 
-import { idSchema, resultSchema } from '../shared/schemas';
-import { computeGpa } from '../shared/gpa';
-import { one, sql } from './_lib/db';
+import { idSchema, resultSchema } from '../shared/schemas.js';
+import { computeGpa } from '../shared/gpa.js';
+import { one, sql } from './_lib/db.js';
 import {
   fail,
   idempotent,
@@ -21,8 +21,8 @@ import {
   requireSameOrigin,
   requireUser,
   track,
-} from './_lib/http';
-import { toVercelHandler } from './_lib/vercel';
+} from './_lib/http.js';
+import { toVercelHandler } from './_lib/vercel.js';
 
 interface ResultRow {
   id: string;

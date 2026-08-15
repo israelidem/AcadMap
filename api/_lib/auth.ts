@@ -38,7 +38,7 @@ import { dash } from '@better-auth/infra';
 import { betterAuth } from 'better-auth';
 import { Pool } from 'pg';
 
-import { passwordResetEmail, sendMail } from './mail';
+import { passwordResetEmail, sendMail } from './mail.js';
 
 const RESET_VALID_MINUTES = 60;
 

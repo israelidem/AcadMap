@@ -27,8 +27,8 @@
  * the Neon HTTP endpoint charges a round trip per statement.
  */
 
-import { syncRequestSchema } from '../shared/schemas';
-import { sql } from './_lib/db';
+import { syncRequestSchema } from '../shared/schemas.js';
+import { sql } from './_lib/db.js';
 import {
   fail,
   json,
@@ -41,8 +41,8 @@ import {
   touchLastSeen,
   track,
 
-} from './_lib/http';
-import { toVercelHandler } from './_lib/vercel';
+} from './_lib/http.js';
+import { toVercelHandler } from './_lib/vercel.js';
 
 /**
  * Rows returned per pull. A page beyond this is unusual — it means a device has

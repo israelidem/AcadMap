@@ -17,10 +17,10 @@
  * `dns` and friends. The `max-age=60` below is what keeps this endpoint cheap.
  */
 
-import { one, sql } from '../_lib/db';
-import { clientIp, fail, json, methodNotAllowed, rateLimit } from '../_lib/http';
-import { hashShareToken } from '../_lib/tokens';
-import { toVercelHandler } from '../_lib/vercel';
+import { one, sql } from '../_lib/db.js';
+import { clientIp, fail, json, methodNotAllowed, rateLimit } from '../_lib/http.js';
+import { hashShareToken } from '../_lib/tokens.js';
+import { toVercelHandler } from '../_lib/vercel.js';
 
 export default toVercelHandler(handler);
 

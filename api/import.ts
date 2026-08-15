@@ -20,8 +20,8 @@
  * the database default.
  */
 
-import { importBundleSchema } from '../shared/schemas';
-import { one, sql } from './_lib/db';
+import { importBundleSchema } from '../shared/schemas.js';
+import { one, sql } from './_lib/db.js';
 import {
   fail,
   json,
@@ -31,8 +31,8 @@ import {
   requireSameOrigin,
   requireUser,
   track,
-} from './_lib/http';
-import { toVercelHandler } from './_lib/vercel';
+} from './_lib/http.js';
+import { toVercelHandler } from './_lib/vercel.js';
 
 /** Rewrites a bundle-local id to the UUID we inserted for it. */
 type IdMap = Map<string, string>;

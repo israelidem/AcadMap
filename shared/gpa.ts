@@ -8,7 +8,7 @@
  *   GPA            = total quality points ÷ total units
  */
 
-import type { ID, Result } from './types';
+import type { ID, Result } from './types.js';
 
 export interface GpaEntry {
   units: number;

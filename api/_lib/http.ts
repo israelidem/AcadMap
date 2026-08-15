@@ -19,8 +19,8 @@
 
 import { z } from 'zod';
 
-import { auth } from './auth';
-import { one, sql } from './db';
+import { auth } from './auth.js';
+import { one, sql } from './db.js';
 
 export interface SessionUser {
 

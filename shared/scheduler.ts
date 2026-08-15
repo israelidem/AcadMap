@@ -24,8 +24,8 @@ import type {
   DateStr,
   ID,
   StudySession,
-} from './types';
-import { addDays, daysBetween, overlaps, toMinutes, toTimeStr, weekdayOf } from './time';
+} from './types.js';
+import { addDays, daysBetween, overlaps, toMinutes, toTimeStr, weekdayOf } from './time.js';
 
 export interface PlannerConfig {
   /** First day the planner may schedule on. */

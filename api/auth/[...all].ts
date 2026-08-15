@@ -16,40 +16,19 @@
  * Runs on the Node runtime (the default): the Postgres driver needs TCP.
  */
 
-import { toVercelHandler } from '../_lib/vercel';
+import { auth } from '../_lib/auth.js';
+import { toVercelHandler } from '../_lib/vercel.js';
 
 /*
  * Wrapped, like every other endpoint: Vercel's Node runtime calls the default
- * export as `(req, res)`, and handing Better Auth a Node `IncomingMessage` in
- * place of a `Request` is what made this route unable to answer at all. See
- * `_lib/vercel.ts`.
+ * export as `(req, res)`, so Better Auth would otherwise be handed a Node
+ * `IncomingMessage` where it expects a `Request`. See `_lib/vercel.ts`.
  *
- * TEMPORARY: the auth module is loaded inside the handler rather than imported
- * at the top, and any failure is reported in the response. A module that throws
- * while loading takes the whole function down before it can answer, and Vercel
- * turns that into a bare FUNCTION_INVOCATION_FAILED with the reason visible only
- * in runtime logs. Loading it here makes the reason reachable. Restore the plain
- * top-level `import { auth } from '../_lib/auth'` once production is healthy.
+ * Note the `.js` on the imports above. Vercel transpiles these files instead of
+ * bundling them, so the deployed `[...all].js` really does resolve its imports
+ * at runtime, and an extensionless specifier is not something Node's ESM loader
+ * can resolve — every function used to die on load with ERR_MODULE_NOT_FOUND.
+ * TypeScript and Vite both map a `.js` specifier onto the `.ts` file beside it,
+ * so the source is unaffected.
  */
-export default toVercelHandler(async (request) => {
-  try {
-    const { auth } = await import('../_lib/auth');
-    return auth.handler(request);
-  } catch (error) {
-    const err = error as Error & { code?: string };
-    return new Response(
-      JSON.stringify(
-        {
-          error: 'auth module failed to load',
-          name: err.name,
-          code: err.code,
-          message: err.message,
-          stack: (err.stack ?? '').split('\n').slice(0, 8),
-        },
-        null,
-        2,
-      ),
-      { status: 500, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
-    );
-  }
-});
+export default toVercelHandler((request) => auth.handler(request));

@@ -1,4 +1,4 @@
-import type { DateStr, TimeStr, Weekday } from './types';
+import type { DateStr, TimeStr, Weekday } from './types.js';
 
 export const WEEKDAY_LABELS = [
   'Sunday',

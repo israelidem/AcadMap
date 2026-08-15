@@ -5,8 +5,8 @@
  * The user id always comes from the session, never from the request body.
  */
 
-import { profileSchema } from '../shared/schemas';
-import { one } from './_lib/db';
+import { profileSchema } from '../shared/schemas.js';
+import { one } from './_lib/db.js';
 import {
   fail,
   json,
@@ -17,8 +17,8 @@ import {
   requireSameOrigin,
   requireUser,
   track,
-} from './_lib/http';
-import { toVercelHandler } from './_lib/vercel';
+} from './_lib/http.js';
+import { toVercelHandler } from './_lib/vercel.js';
 
 const SELECT = `SELECT user_id       AS "userId",
                        full_name     AS "fullName",

@@ -12,9 +12,9 @@
  * link is shown exactly once — at creation.
  */
 
-import { shareSnapshotSchema } from '../shared/schemas';
-import { computeGpa } from '../shared/gpa';
-import { one, sql } from './_lib/db';
+import { shareSnapshotSchema } from '../shared/schemas.js';
+import { computeGpa } from '../shared/gpa.js';
+import { one, sql } from './_lib/db.js';
 import {
   fail,
   idempotent,
@@ -25,9 +25,9 @@ import {
   requireSameOrigin,
   requireUser,
   track,
-} from './_lib/http';
-import { createShareToken, hashShareToken } from './_lib/tokens';
-import { toVercelHandler } from './_lib/vercel';
+} from './_lib/http.js';
+import { createShareToken, hashShareToken } from './_lib/tokens.js';
+import { toVercelHandler } from './_lib/vercel.js';
 
 /** Fields the student may choose to publish, mapped to profile columns. */
 const PROFILE_FIELDS: Record<string, string> = {

@@ -5,8 +5,8 @@
  */
 
 import { z } from 'zod';
-import { feedbackSchema, feedbackStatusSchema, idSchema } from '../shared/schemas';
-import { one, sql } from './_lib/db';
+import { feedbackSchema, feedbackStatusSchema, idSchema } from '../shared/schemas.js';
+import { one, sql } from './_lib/db.js';
 import {
   clientIp,
   fail,
@@ -18,8 +18,8 @@ import {
   requireOwner,
   requireSameOrigin,
   requireUser,
-} from './_lib/http';
-import { toVercelHandler } from './_lib/vercel';
+} from './_lib/http.js';
+import { toVercelHandler } from './_lib/vercel.js';
 
 const COLUMNS = `id, user_email AS "userEmail", category, message, status,
                  created_at AS "createdAt"`;

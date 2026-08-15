@@ -5,9 +5,9 @@
  * no individual academic records are returned (ADM-005).
  */
 
-import { one, sql } from '../_lib/db';
-import { fail, jsonCached, methodNotAllowed, requireOwner } from '../_lib/http';
-import { toVercelHandler } from '../_lib/vercel';
+import { one, sql } from '../_lib/db.js';
+import { fail, jsonCached, methodNotAllowed, requireOwner } from '../_lib/http.js';
+import { toVercelHandler } from '../_lib/vercel.js';
 
 const ALLOWED_RANGES = new Set([1, 7, 30, 90]);
 

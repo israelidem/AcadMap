@@ -8,8 +8,8 @@
  * simply affects zero rows rather than someone else's data.
  */
 
-import { courseSchema, idSchema } from '../shared/schemas';
-import { one, sql } from './_lib/db';
+import { courseSchema, idSchema } from '../shared/schemas.js';
+import { one, sql } from './_lib/db.js';
 import {
   fail,
   idempotent,
@@ -21,8 +21,8 @@ import {
   requireSameOrigin,
   requireUser,
   track,
-} from './_lib/http';
-import { toVercelHandler } from './_lib/vercel';
+} from './_lib/http.js';
+import { toVercelHandler } from './_lib/vercel.js';
 
 const COLUMNS = `id, term_id AS "termId", name, code, units, priority,
                  exam_date AS "examDate", description, archived`;

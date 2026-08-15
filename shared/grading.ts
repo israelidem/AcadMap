@@ -1,4 +1,4 @@
-import type { GradeRule, GradingSystem } from './types';
+import type { GradeRule, GradingSystem } from './types.js';
 
 const rule = (name: string, point: number, minScore: number | null = null): GradeRule => ({
   id: `${name}-${point}`,

@@ -5,8 +5,8 @@
  * study session on it. Opening the app never awards a streak.
  */
 
-import type { DateStr, StreakState, StudySession } from './types';
-import { addDays, daysBetween, todayStr } from './time';
+import type { DateStr, StreakState, StudySession } from './types.js';
+import { addDays, daysBetween, todayStr } from './time.js';
 
 export function qualifyingDays(sessions: StudySession[]): DateStr[] {
   const days = new Set<DateStr>();

@@ -23,7 +23,7 @@
  * keeps the tricky reasoning testable and out of the network and storage layers.
  */
 
-import type { ID, Timestamp } from './types';
+import type { ID, Timestamp } from './types.js';
 
 /**
  * The bookkeeping every synced row carries.
