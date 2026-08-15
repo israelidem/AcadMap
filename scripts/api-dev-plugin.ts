@@ -147,6 +147,7 @@ export function apiDevPlugin(): Plugin {
         'APP_ORIGIN',
         'BETTER_AUTH_SECRET',
         'BETTER_AUTH_URL',
+        'BETTER_AUTH_API_KEY',
         'BREVO_API_KEY',
         'RESEND_API_KEY',
         'MAIL_FROM',
