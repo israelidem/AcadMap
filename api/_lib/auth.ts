@@ -29,8 +29,12 @@
  *   BETTER_AUTH_URL     the deployment's own origin, e.g. https://acadmap.app.
  *                       Used to build links in email and to check callbacks.
  *   OWNER_EMAIL         promoted to OWNER when it registers; nothing else grants it.
+ *   BETTER_AUTH_API_KEY authorises the hosted Better Auth dashboard (see `dash`
+ *                       below). Absent, the dashboard simply cannot connect;
+ *                       leaked, it is an admin key — rotate it in the dashboard.
  */
 
+import { dash } from '@better-auth/infra';
 import { betterAuth } from 'better-auth';
 import { Pool } from 'pg';
 
@@ -79,6 +83,22 @@ export const auth = betterAuth({
   trustedOrigins: devOrigins,
   // Matches api/auth/[...all].ts, which is where Vercel routes these requests.
   basePath: '/api/auth',
+
+  /*
+   * The hosted dashboard at dash.better-auth.com (student list, sessions,
+   * sign-up graphs) instead of building an admin UI for the same data.
+   *
+   * This mounts `/api/auth/dash/*`, and those routes are powerful: listing and
+   * exporting users, creating and deleting them, banning, revoking sessions,
+   * impersonating. They authorise against `BETTER_AUTH_API_KEY` rather than a
+   * student session, so that key is an admin credential — it belongs only in
+   * the deployment's environment variables, and a key that has been pasted into
+   * a screenshot, a chat or a commit must be rotated.
+   *
+   * The key is read from `process.env.BETTER_AUTH_API_KEY` by default, so it is
+   * deliberately not named here.
+   */
+  plugins: [dash()],
 
 
   emailAndPassword: {

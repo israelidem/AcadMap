@@ -327,7 +327,9 @@ export const syncRowSchema = z.object({
    * academic data, it does not interpret it — but capped so one device cannot
    * push an unbounded document.
    */
-  data: z.record(z.unknown()),
+  // Zod 4 requires the key type explicitly: `z.record(valueType)` no longer
+  // exists. Keys are the client's own field names, so any string will do.
+  data: z.record(z.string(), z.unknown()),
   updatedAt: z.string().datetime(),
   deletedAt: z.string().datetime().nullable().default(null),
 });
