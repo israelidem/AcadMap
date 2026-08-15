@@ -165,4 +165,50 @@ describe('parseResultText', () => {
     expect(rows[0].units).toBeNull();
     expect(notes.some((note) => note.includes('no units'))).toBe(true);
   });
+
+  /*
+   * The reported bug: a PDF whose rows carry an extra leading cell (a serial
+   * number the header does not declare) shifted every value one column left, so
+   * the title column held a figure and the units column held a mark. Twelve rows
+   * parsed and none could be saved. Values must be checked against the field
+   * claiming them, not accepted on position alone.
+   */
+  it('recovers a row whose cells are shifted out of line with the header', () => {
+    const text = [
+      'COURSE CODE  COURSE TITLE  UNIT  SCORE  GRADE',
+      '1  CSC 201  Data Structures  3  72  B',
+    ].join('\n');
+
+    const { rows } = parseResultText(text);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      courseCode: 'CSC 201',
+      courseName: 'DATA STRUCTURES',
+      units: 3,
+      score: 72,
+      gradeName: 'B',
+    });
+  });
+
+  it('never reads a mark as a unit count', () => {
+    // 72 units is not a course; the row keeps the mark and reports no units
+    // rather than importing an unusable figure.
+    const { rows } = parseResultText('Code,Title,Units\nCSC 201,Data Structures,72');
+
+    expect(rows[0].units).not.toBe(72);
+    expect(rows[0].courseName).toBe('Data Structures');
+  });
+
+  it('does not accept a figure as a course title', () => {
+    const text = ['CODE  TITLE  UNIT  GRADE', 'CSC 201  3  3  B'].join('\n');
+
+    const { rows } = parseResultText(text);
+
+    // "3" is a shifted cell, not a title, and must not be saved as one.
+    expect(rows[0].courseName).not.toBe('3');
+    expect(rows[0]).toMatchObject({ courseCode: 'CSC 201', units: 3, gradeName: 'B' });
+  });
 });
+
+

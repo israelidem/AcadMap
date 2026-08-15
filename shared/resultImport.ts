@@ -94,6 +94,56 @@ function toNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Sanity checks on values read by column position.
+ *
+ * Text lifted out of a PDF does not reliably produce one cell per column: an
+ * empty cell, a wrapped title or a merged fragment shifts every cell after it.
+ * When that happens the column map is still applied, and the row silently
+ * imports with a mark in the units column and a figure as its title — which is
+ * how a sheet of twelve courses arrives with nothing that can be saved.
+ *
+ * So a value has to be plausible for the field that claims it. Where it is not,
+ * the value is discarded and the shape heuristic gets the row instead.
+ */
+const UNITS_CEILING = 12;
+
+function plausibleUnits(value: number | null): number | null {
+  return value !== null && Number.isInteger(value) && value >= 1 && value <= UNITS_CEILING
+    ? value
+    : null;
+}
+
+function plausibleScore(value: number | null): number | null {
+  return value !== null && value >= 0 && value <= 100 ? value : null;
+}
+
+/**
+ * A title is words, not figures. "3", "4.00" and "" are all a shifted cell
+ * rather than a course, and treating them as a name is what leaves a row
+ * unsaveable while looking filled in.
+ */
+function plausibleName(value: string): string {
+  return /[a-z]{2,}/i.test(value) ? value : '';
+}
+
+/**
+ * A course code carries a number ("CSC 201", "GST102A"). A cell with letters
+ * only is a title that has slid into the code column, and accepting it puts
+ * "DATA STRUCTURES" in the code field and nothing in the title.
+ */
+function plausibleCode(value: string): string {
+  const compact = value.trim();
+  // Letters and digits both, so a serial number ("1") in a column the header
+  // never declared cannot become the course code.
+  if (!/[a-z]/i.test(compact) || !/\d/.test(compact)) return '';
+  // Codes are one token, occasionally two ("CSC 201"); more than that is prose.
+  return compact.split(/\s+/).length <= 2 ? compact.toUpperCase() : '';
+}
+
+
+
+
 /** A header row is one where at least two cells name a column we understand. */
 function readHeader(line: string): Partial<Record<Field, number>> | null {
   const cells = splitCells(line);
@@ -141,12 +191,31 @@ function fromColumns(line: string, map: Partial<Record<Field, number>>): ParsedR
 
   const row = blankRow();
   const codeCell = at('code');
-  const codeMatch = (codeCell || line).toUpperCase().match(COURSE_CODE);
+  const codeMatch = codeCell.toUpperCase().match(COURSE_CODE);
 
-  row.courseCode = codeMatch ? `${codeMatch[1]} ${codeMatch[2]}` : codeCell.toUpperCase();
-  row.courseName = tidyName(at('name'));
-  row.units = toNumber(at('units'));
-  row.score = toNumber(at('score'));
+  /*
+   * Whether this line's cells still line up with the header.
+   *
+   * The code column is the test, because a course code is the one field whose
+   * shape is unmistakable. If the cell the header called "code" holds no code,
+   * every cell after it is displaced too — a serial number the header never
+   * declared, a wrapped title, a blank — and reading the rest by position would
+   * put a mark in the units column and a figure in the title. So the whole line
+   * goes to the shape heuristic instead of importing a row nothing can save.
+   */
+  const aligned = codeMatch !== null || plausibleCode(codeCell) !== '';
+
+  row.courseCode = codeMatch ? `${codeMatch[1]} ${codeMatch[2]}` : plausibleCode(codeCell);
+
+  // Each value must also suit the field claiming it, so a stray cell inside an
+  // otherwise aligned row is dropped rather than trusted.
+  if (aligned) {
+    row.courseName = plausibleName(tidyName(at('name')));
+    row.units = plausibleUnits(toNumber(at('units')));
+    row.score = plausibleScore(toNumber(at('score')));
+  }
+
+
 
   const grade = at('grade').toUpperCase();
   if (GRADE.test(grade)) row.gradeName = grade;

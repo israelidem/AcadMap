@@ -122,7 +122,25 @@ function resolveGrade(system: GradingSystem, row: ParsedResultRow): string {
   return '';
 }
 
+/**
+ * What is stopping a row from being saved.
+ *
+ * A row needs a title, a unit count and a grade. When one is missing the row is
+ * held back — but silently holding it back is what produced "Add 0 records"
+ * under a table of twelve courses: the count was accurate and the reason was
+ * invisible. Naming the missing field per row turns a dead end into a two-second
+ * correction.
+ */
+function blockers(row: DraftRow): string[] {
+  const missing: string[] = [];
+  if (row.courseName.trim().length < 2) missing.push('title');
+  if (!((row.units ?? 0) > 0)) missing.push('units');
+  if (!row.grade) missing.push('grade');
+  return missing;
+}
+
 /** Ties a parsed row to a course already recorded in the term, if one matches. */
+
 function matchCourse(courses: Course[], row: ParsedResultRow): Course | undefined {
   const code = row.courseCode.replace(/\s+/g, '').toUpperCase();
   const name = row.courseName.trim().toLowerCase();
@@ -222,13 +240,25 @@ export function ResultSheetImport({
     setRows((current) => current?.filter((row) => row.key !== key) ?? null);
   };
 
-  const ready = useMemo(
-    () =>
-      (rows ?? []).filter(
-        (row) => row.courseName.trim().length >= 2 && (row.units ?? 0) > 0 && row.grade,
-      ),
-    [rows],
-  );
+  /** Applies one unit count to every row still missing one. */
+  const fillUnits = (units: number) => {
+    setRows(
+      (current) =>
+        current?.map((row) => ((row.units ?? 0) > 0 ? row : { ...row, units })) ?? null,
+    );
+  };
+
+  const ready = useMemo(() => (rows ?? []).filter((row) => blockers(row).length === 0), [rows]);
+
+  /** How many rows are held back for each reason, to say so once above the table. */
+  const held = useMemo(() => {
+    const counts = { title: 0, units: 0, grade: 0 };
+    for (const row of rows ?? []) {
+      for (const reason of blockers(row)) counts[reason as keyof typeof counts] += 1;
+    }
+    return counts;
+  }, [rows]);
+
 
   const save = () => {
     if (ready.length === 0) {
@@ -332,8 +362,45 @@ export function ResultSheetImport({
       {rows && rows.length > 0 && (
         <div className="grid gap-3">
           <p className="text-sm font-medium">
-            Found {rows.length} course{rows.length === 1 ? '' : 's'} — check and edit before saving.
+            Found {rows.length} course{rows.length === 1 ? '' : 's'} —{' '}
+            <span className="tabular">{ready.length}</span> ready to save.
           </p>
+
+          {/*
+            Why a row is being held back, and the fastest way out of it. Most
+            sheets that stall do so for one reason across every row — units the
+            portal never printed — so the fix offered here is the bulk one.
+          */}
+          {ready.length < rows.length && (
+            <div className="rounded-xl border border-warning/40 bg-warning/5 p-3">
+              <p className="text-xs leading-relaxed">
+                <span className="font-medium">
+                  {rows.length - ready.length} row{rows.length - ready.length === 1 ? '' : 's'}{' '}
+                  cannot be saved yet.
+                </span>{' '}
+                {[
+                  held.title > 0 && `${held.title} need a course title`,
+                  held.units > 0 && `${held.units} need units`,
+                  held.grade > 0 && `${held.grade} need a grade`,
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
+                . Fill the highlighted fields below, or remove rows you do not want.
+              </p>
+
+              {held.units > 0 && (
+                <div className="am-row-x mt-2 gap-1.5">
+                  <span className="am-eyebrow">Set every missing unit to</span>
+                  {[1, 2, 3, 4, 6].map((units) => (
+                    <Button key={units} size="sm" variant="secondary" onClick={() => fillUnits(units)}>
+                      {units}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
 
           {/* Scrolls sideways on a phone rather than pushing the page off screen. */}
           <div className="am-scroll-x">
@@ -355,6 +422,8 @@ export function ResultSheetImport({
                   const rule = system.rules.find((item) => item.name === row.grade);
                   const qualityPoints =
                     rule && row.units ? Math.round(rule.point * row.units * 100) / 100 : null;
+                  // Which fields are holding this row back, marked where they are.
+                  const missing = blockers(row);
 
                   return (
                     <tr key={row.key} className="border-t border-border align-top">
@@ -369,6 +438,7 @@ export function ResultSheetImport({
                         <Input
                           aria-label="Course title"
                           value={row.courseName}
+                          error={missing.includes('title') ? 'Needed' : undefined}
                           onChange={(event) => patch(row.key, { courseName: event.target.value })}
                         />
                       </td>
@@ -378,6 +448,7 @@ export function ResultSheetImport({
                           type="number"
                           min={1}
                           value={row.units ?? ''}
+                          error={missing.includes('units') ? 'Needed' : undefined}
                           onChange={(event) =>
                             patch(row.key, {
                               units: event.target.value === '' ? null : Number(event.target.value),
@@ -390,8 +461,10 @@ export function ResultSheetImport({
                         <Select
                           aria-label="Grade"
                           value={row.grade}
+                          error={missing.includes('grade') ? 'Needed' : undefined}
                           onChange={(event) => patch(row.key, { grade: event.target.value })}
                         >
+
                           {/* Unread grades stay empty rather than defaulting to a pass. */}
                           <option value="">Choose…</option>
                           {grades.map((grade) => (
@@ -418,9 +491,16 @@ export function ResultSheetImport({
             </table>
           </div>
 
+          {/*
+            The button states the number it will actually save, and when that is
+            none it says what is missing instead of offering a dead "Add 0".
+          */}
           <Button onClick={save} disabled={ready.length === 0}>
-            Add {ready.length} record{ready.length === 1 ? '' : 's'}
+            {ready.length === 0
+              ? 'Fill in the highlighted fields to save'
+              : `Add ${ready.length} record${ready.length === 1 ? '' : 's'}`}
           </Button>
+
         </div>
       )}
     </div>
