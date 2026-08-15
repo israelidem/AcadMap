@@ -27,6 +27,7 @@ import {
   track,
 } from './_lib/http';
 import { createShareToken, hashShareToken } from './_lib/tokens';
+import { toVercelHandler } from './_lib/vercel';
 
 /** Fields the student may choose to publish, mapped to profile columns. */
 const PROFILE_FIELDS: Record<string, string> = {
@@ -36,7 +37,9 @@ const PROFILE_FIELDS: Record<string, string> = {
   level: 'level',
 };
 
-export default async function handler(request: Request): Promise<Response> {
+export default toVercelHandler(handler);
+
+async function handler(request: Request): Promise<Response> {
   const crossSite = requireSameOrigin(request);
   if (crossSite) return crossSite;
 

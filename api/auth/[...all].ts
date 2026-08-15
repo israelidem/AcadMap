@@ -17,7 +17,12 @@
  */
 
 import { auth } from '../_lib/auth';
+import { toVercelHandler } from '../_lib/vercel';
 
-export default function handler(request: Request): Promise<Response> {
-  return auth.handler(request);
-}
+/*
+ * Wrapped, like every other endpoint: Vercel's Node runtime calls the default
+ * export as `(req, res)`, and handing Better Auth a Node `IncomingMessage` in
+ * place of a `Request` is what made every auth route answer 500 in production
+ * while working locally. See `_lib/vercel.ts`.
+ */
+export default toVercelHandler((request) => auth.handler(request));

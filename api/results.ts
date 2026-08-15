@@ -22,6 +22,7 @@ import {
   requireUser,
   track,
 } from './_lib/http';
+import { toVercelHandler } from './_lib/vercel';
 
 interface ResultRow {
   id: string;
@@ -38,7 +39,9 @@ const COLUMNS = `id, term_id AS "termId", course_name AS "courseName", course_co
                  units::float8 AS units, grade_label AS "gradeName",
                  grade_point::float8 AS "gradePoint", counts_in_gpa AS "countsInGpa"`;
 
-export default async function handler(request: Request): Promise<Response> {
+export default toVercelHandler(handler);
+
+async function handler(request: Request): Promise<Response> {
   const crossSite = requireSameOrigin(request);
   if (crossSite) return crossSite;
 

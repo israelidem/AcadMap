@@ -7,10 +7,13 @@
 
 import { one, sql } from '../_lib/db';
 import { fail, jsonCached, methodNotAllowed, requireOwner } from '../_lib/http';
+import { toVercelHandler } from '../_lib/vercel';
 
 const ALLOWED_RANGES = new Set([1, 7, 30, 90]);
 
-export default async function handler(request: Request): Promise<Response> {
+export default toVercelHandler(handler);
+
+async function handler(request: Request): Promise<Response> {
   if (request.method !== 'GET') return methodNotAllowed(['GET']);
 
   const auth = await requireOwner(request);

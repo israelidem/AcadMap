@@ -22,11 +22,14 @@ import {
   requireUser,
   track,
 } from './_lib/http';
+import { toVercelHandler } from './_lib/vercel';
 
 const COLUMNS = `id, term_id AS "termId", name, code, units, priority,
                  exam_date AS "examDate", description, archived`;
 
-export default async function handler(request: Request): Promise<Response> {
+export default toVercelHandler(handler);
+
+async function handler(request: Request): Promise<Response> {
   const crossSite = requireSameOrigin(request);
   if (crossSite) return crossSite;
 

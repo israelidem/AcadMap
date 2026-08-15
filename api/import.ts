@@ -32,6 +32,7 @@ import {
   requireUser,
   track,
 } from './_lib/http';
+import { toVercelHandler } from './_lib/vercel';
 
 /** Rewrites a bundle-local id to the UUID we inserted for it. */
 type IdMap = Map<string, string>;
@@ -41,7 +42,9 @@ function mapped(map: IdMap, localId: string | null): string | null {
   return map.get(localId) ?? null;
 }
 
-export default async function handler(request: Request): Promise<Response> {
+export default toVercelHandler(handler);
+
+async function handler(request: Request): Promise<Response> {
   const crossSite = requireSameOrigin(request);
   if (crossSite) return crossSite;
 

@@ -20,8 +20,11 @@
 import { one, sql } from '../_lib/db';
 import { clientIp, fail, json, methodNotAllowed, rateLimit } from '../_lib/http';
 import { hashShareToken } from '../_lib/tokens';
+import { toVercelHandler } from '../_lib/vercel';
 
-export default async function handler(request: Request): Promise<Response> {
+export default toVercelHandler(handler);
+
+async function handler(request: Request): Promise<Response> {
   if (request.method !== 'GET') return methodNotAllowed(['GET']);
 
   if (!(await rateLimit(`share:${clientIp(request)}`, 60, 60))) {

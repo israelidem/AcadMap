@@ -18,6 +18,7 @@ import {
   requireUser,
   track,
 } from './_lib/http';
+import { toVercelHandler } from './_lib/vercel';
 
 const SELECT = `SELECT user_id       AS "userId",
                        full_name     AS "fullName",
@@ -31,7 +32,9 @@ const SELECT = `SELECT user_id       AS "userId",
                        onboarding_completed_at  AS "onboardingCompletedAt"
                   FROM profiles WHERE user_id = $1`;
 
-export default async function handler(request: Request): Promise<Response> {
+export default toVercelHandler(handler);
+
+async function handler(request: Request): Promise<Response> {
   const crossSite = requireSameOrigin(request);
   if (crossSite) return crossSite;
 

@@ -42,6 +42,7 @@ import {
   track,
 
 } from './_lib/http';
+import { toVercelHandler } from './_lib/vercel';
 
 /**
  * Rows returned per pull. A page beyond this is unusual — it means a device has
@@ -120,7 +121,9 @@ const REJECTED = `
    WHERE s.user_id = $1
      AND s.updated_at <> x.updated_at`;
 
-export default async function handler(request: Request): Promise<Response> {
+export default toVercelHandler(handler);
+
+async function handler(request: Request): Promise<Response> {
   const crossSite = requireSameOrigin(request);
   if (crossSite) return crossSite;
 

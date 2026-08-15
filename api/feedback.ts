@@ -19,11 +19,14 @@ import {
   requireSameOrigin,
   requireUser,
 } from './_lib/http';
+import { toVercelHandler } from './_lib/vercel';
 
 const COLUMNS = `id, user_email AS "userEmail", category, message, status,
                  created_at AS "createdAt"`;
 
-export default async function handler(request: Request): Promise<Response> {
+export default toVercelHandler(handler);
+
+async function handler(request: Request): Promise<Response> {
   const crossSite = requireSameOrigin(request);
   if (crossSite) return crossSite;
 
