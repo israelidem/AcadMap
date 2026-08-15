@@ -3,8 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f172a" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e8e9e2" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14131f" />
+
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="AcadMap" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,6 +18,20 @@
     <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+
+    <!--
+      Three faces, three jobs: Archivo (a variable width axis, set wide) for
+      registry headings, IBM Plex Sans for reading, IBM Plex Mono for every
+      figure on a result sheet. Loaded with display=swap so a slow connection
+      still gets text immediately.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+    />
+
 
     <script>
       // Apply the stored theme before first paint to avoid a flash.

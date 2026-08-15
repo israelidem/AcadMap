@@ -11,6 +11,14 @@ import {
 } from 'recharts';
 import type { TermPerformance } from '@shared/gpa';
 
+/*
+ * Axis figures are monospaced, as every other number in AcadMap is. Recharts
+ * renders SVG text, which does not inherit the app's font stack, so the family
+ * has to be named here rather than left to CSS.
+ */
+const TICK_FONT = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
+
+
 export function GpaHistoryChart({
   history,
   scale,
@@ -32,26 +40,31 @@ export function GpaHistoryChart({
     <div style={{ height }} className="w-full">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgb(var(--am-border))" />
+          {/* Ruled like the sheet the rest of the app is printed on: horizontal
+              lines only, so the eye reads values rather than a grid. */}
+          <CartesianGrid vertical={false} stroke="rgb(var(--am-rule))" />
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 12, fill: 'rgb(var(--am-muted))' }}
+            tick={{ fontSize: 11, fill: 'rgb(var(--am-muted))', fontFamily: TICK_FONT }}
             stroke="rgb(var(--am-border))"
           />
           <YAxis
             domain={[0, Math.ceil(scale)]}
-            tick={{ fontSize: 12, fill: 'rgb(var(--am-muted))' }}
+            tick={{ fontSize: 11, fill: 'rgb(var(--am-muted))', fontFamily: TICK_FONT }}
             stroke="rgb(var(--am-border))"
           />
           <Tooltip
+            cursor={{ stroke: 'rgb(var(--am-brand))', strokeWidth: 1 }}
             contentStyle={{
               background: 'rgb(var(--am-surface))',
               border: '1px solid rgb(var(--am-border))',
-              borderRadius: 12,
+              borderRadius: 4,
               color: 'rgb(var(--am-fg))',
-              fontSize: 13,
+              fontSize: 12,
+              fontFamily: TICK_FONT,
             }}
           />
+
           <Line
             type="monotone"
             dataKey="gpa"

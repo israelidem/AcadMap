@@ -1,4 +1,11 @@
-/** Authenticated app shell: top bar, desktop nav, mobile bottom nav. */
+/**
+ * Authenticated app shell: registry masthead, desktop nav, mobile bottom nav.
+ *
+ * The masthead is two rules deep, the way the head of a printed record is: the
+ * name and the controls on the first line, the sections filed along the second.
+ * There is no left sidebar on purpose — this is a document a student reads, not
+ * a console they administer.
+ */
 
 import { useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
@@ -22,7 +29,7 @@ import { logout } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
 import { cn, initials } from '@/lib/utils';
 import { Badge, Button, Modal } from './ui';
-import { LogoMark } from './brand';
+import { Wordmark } from './brand';
 
 import { NotificationBell } from './notifications';
 import { SyncStatus } from './syncStatus';
@@ -42,7 +49,7 @@ const MOBILE = [
   { to: '/app', label: 'Home', icon: LayoutDashboard, end: true },
   { to: '/app/planner', label: 'Planner', icon: CalendarDays },
   { to: '/app/courses', label: 'Courses', icon: BookOpen },
-  { to: '/app/performance', label: 'Performance', icon: BarChart3 },
+  { to: '/app/performance', label: 'Trend', icon: BarChart3 },
 ];
 
 function ThemeToggle() {
@@ -54,7 +61,7 @@ function ThemeToggle() {
       onClick={() => setMode(next)}
       aria-label={`Theme: ${mode}. Switch to ${next}`}
       title={`Theme: ${mode}`}
-      className="am-touch grid place-items-center rounded-xl text-muted hover:bg-surface-2"
+      className="am-touch grid place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
     >
       {mode === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
     </button>
@@ -71,36 +78,24 @@ export function AppLayout() {
 
   return (
     <div className="min-h-dvh overflow-x-hidden bg-bg">
-      <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-border bg-bg/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5">
           {/*
             shrink-0 and nowrap, or the name loses. The icon row to the right was
             allowed to take what it liked, so on a narrow phone the wordmark was
             squeezed into a column of single letters.
           */}
-          <Link to="/app" className="flex shrink-0 items-center gap-2 whitespace-nowrap font-semibold">
-            <LogoMark />
-            <span>AcadMap</span>
+          <Link to="/app" className="shrink-0 rounded-md" aria-label="AcadMap dashboard">
+            <Wordmark />
           </Link>
 
-
-          <nav className="ml-4 hidden flex-1 items-center gap-1 lg:flex">
-            {PRIMARY.map(({ to, label, end }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                className={({ isActive }) =>
-                  cn(
-                    'rounded-xl px-3 py-2 text-sm font-medium transition',
-                    isActive ? 'bg-brand-soft text-brand' : 'text-muted hover:bg-surface-2 hover:text-fg',
-                  )
-                }
-              >
-                {label}
-              </NavLink>
-            ))}
-          </nav>
+          {/* The student's filing details, printed beside the name as on a record. */}
+          {profile?.institution && (
+            <p className="hidden min-w-0 truncate border-l border-rule pl-3 font-mono text-micro uppercase text-muted xl:block">
+              {profile.institution}
+              {profile.level ? ` · ${profile.level}` : ''}
+            </p>
+          )}
 
           {/* min-w-0 so this row yields space rather than pushing the name out. */}
           <div className="ml-auto flex min-w-0 items-center gap-1">
@@ -110,7 +105,7 @@ export function AppLayout() {
               type="button"
               onClick={() => setFeedbackOpen(true)}
               aria-label="Send feedback"
-              className="am-touch hidden place-items-center rounded-xl text-muted hover:bg-surface-2 lg:grid"
+              className="am-touch hidden place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg lg:grid"
             >
               <MessageSquarePlus className="h-5 w-5" />
             </button>
@@ -121,8 +116,7 @@ export function AppLayout() {
             {isOwner && (
               <Link
                 to="/admin"
-                className="am-touch hidden place-items-center rounded-xl text-brand hover:bg-brand-soft lg:grid"
-
+                className="am-touch hidden place-items-center rounded-lg text-brand hover:bg-brand-soft lg:grid"
                 aria-label="Admin dashboard"
                 title="Admin dashboard"
               >
@@ -132,13 +126,13 @@ export function AppLayout() {
             <button
               type="button"
               onClick={() => setMenuOpen(true)}
-              className="am-touch grid place-items-center rounded-xl lg:hidden"
+              className="am-touch grid place-items-center rounded-lg lg:hidden"
               aria-label="Open menu"
             >
               <Menu className="h-5 w-5" />
             </button>
             <div
-              className="ml-1 hidden h-9 w-9 place-items-center overflow-hidden rounded-full bg-brand-soft text-sm font-semibold text-brand lg:grid"
+              className="ml-1 hidden h-9 w-9 place-items-center overflow-hidden rounded-md border border-brand/40 bg-brand-soft font-mono text-micro font-semibold text-brand lg:grid"
               title={name}
             >
               {profile?.avatarDataUrl ? (
@@ -161,14 +155,38 @@ export function AppLayout() {
             </Button>
           </div>
         </div>
+
+        {/* Second rule: the sections, filed along the foot of the masthead. */}
+        <nav className="hidden border-t border-rule lg:block">
+          <div className="mx-auto flex max-w-6xl items-stretch gap-6 px-4">
+            {PRIMARY.map(({ to, label, end }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={end}
+                className={({ isActive }) =>
+                  cn(
+                    'relative -mb-px py-2.5 font-mono text-micro font-medium uppercase transition-colors',
+                    'after:absolute after:inset-x-0 after:-bottom-px after:h-[2px] after:content-[""]',
+                    isActive
+                      ? 'text-brand after:bg-brand'
+                      : 'text-muted after:bg-transparent hover:text-fg hover:after:bg-border',
+                  )
+                }
+              >
+                {label}
+              </NavLink>
+            ))}
+          </div>
+        </nav>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 pb-24 pt-5 lg:pb-10">
+      <main className="mx-auto max-w-6xl px-4 pb-28 pt-6 lg:pb-12">
         <Outlet />
       </main>
 
       {/* Mobile bottom navigation */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
         <div className="mx-auto grid max-w-md grid-cols-5">
           {MOBILE.map(({ to, label, icon: Icon, end }) => (
             <NavLink
@@ -177,8 +195,11 @@ export function AppLayout() {
               end={end}
               className={({ isActive }) =>
                 cn(
-                  'am-touch flex flex-col items-center justify-center gap-0.5 py-2 text-[11px]',
-                  isActive ? 'text-brand' : 'text-muted',
+                  // The active section is marked at the top edge, so the label
+                  // does not have to rely on colour alone.
+                  'am-touch relative flex flex-col items-center justify-center gap-1 py-2 font-mono text-[10px] uppercase tracking-[0.06em]',
+                  'before:absolute before:inset-x-3 before:top-0 before:h-[2px] before:content-[""]',
+                  isActive ? 'text-brand before:bg-brand' : 'text-muted before:bg-transparent',
                 )
               }
             >
@@ -189,7 +210,7 @@ export function AppLayout() {
           <button
             type="button"
             onClick={() => setMenuOpen(true)}
-            className="am-touch flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] text-muted"
+            className="am-touch flex flex-col items-center justify-center gap-1 py-2 font-mono text-[10px] uppercase tracking-[0.06em] text-muted"
           >
             <Menu className="h-5 w-5" />
             More
@@ -207,8 +228,10 @@ export function AppLayout() {
               onClick={() => setMenuOpen(false)}
               className={({ isActive }) =>
                 cn(
-                  'am-touch flex items-center gap-3 rounded-xl px-3 text-sm',
-                  isActive ? 'bg-brand-soft text-brand' : 'hover:bg-surface-2',
+                  'am-touch flex items-center gap-3 rounded-lg px-3 text-sm',
+                  isActive
+                    ? 'border border-brand/40 bg-brand-soft font-medium text-brand'
+                    : 'border border-transparent hover:bg-surface-2',
                 )
               }
             >
@@ -220,7 +243,7 @@ export function AppLayout() {
             <NavLink
               to="/admin"
               onClick={() => setMenuOpen(false)}
-              className="am-touch flex items-center gap-3 rounded-xl px-3 text-sm hover:bg-surface-2"
+              className="am-touch flex items-center gap-3 rounded-lg px-3 text-sm hover:bg-surface-2"
             >
               <Shield className="h-4 w-4" />
               Admin dashboard
@@ -233,7 +256,7 @@ export function AppLayout() {
               setMenuOpen(false);
               setFeedbackOpen(true);
             }}
-            className="am-touch flex items-center gap-3 rounded-xl px-3 text-left text-sm hover:bg-surface-2"
+            className="am-touch flex items-center gap-3 rounded-lg px-3 text-left text-sm hover:bg-surface-2"
           >
             <MessageSquarePlus className="h-4 w-4" />
             Send feedback
@@ -245,7 +268,7 @@ export function AppLayout() {
               logout();
               navigate('/');
             }}
-            className="am-touch flex items-center gap-3 rounded-xl px-3 text-left text-sm text-danger hover:bg-surface-2"
+            className="am-touch mt-1 flex items-center gap-3 rounded-lg border-t border-rule px-3 text-left text-sm text-danger hover:bg-surface-2"
           >
             <LogOut className="h-4 w-4" />
             Log out

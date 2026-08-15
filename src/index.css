@@ -3,38 +3,65 @@
 @tailwind utilities;
 
 /*
- * AcadMap design tokens.
+ * AcadMap design tokens — the "Registry" language.
+ *
+ * The product replaces a paper trail: result sheets, transcripts, a course-form
+ * signed at the faculty office. So the surfaces are stock, not glass: manila
+ * grey paper, hairline rules, duplicating-ink violet for anything the student
+ * acts on, registry teal for the second data series, and stamp inks (ochre,
+ * oxblood, forest) for status.
+ *
  * Colours are stored as raw RGB channels so Tailwind can apply opacity.
  */
 @layer base {
   :root {
-    --am-bg: 248 250 252;
-    --am-surface: 255 255 255;
-    --am-surface-2: 241 245 249;
-    --am-border: 226 232 240;
-    --am-fg: 15 23 42;
-    --am-muted: 100 116 139;
-    --am-brand: 22 88 141;
+    /* Paper */
+    --am-bg: 232 233 226; /* #E8E9E2 manila grey */
+    --am-surface: 251 251 248; /* #FBFBF8 sheet */
+    --am-surface-2: 240 240 233; /* #F0F0E9 second column */
+    --am-border: 203 204 192; /* #CBCCC0 sheet edge */
+    --am-rule: 214 215 203; /* #D6D7CB ruled line */
+
+    /* Ink */
+    --am-fg: 26 25 44; /* #1A192C */
+    --am-muted: 101 98 122; /* #65627A */
+
+    /* Duplicating violet */
+    --am-brand: 74 47 160; /* #4A2FA0 */
     --am-brand-fg: 255 255 255;
-    --am-brand-soft: 224 240 250;
-    --am-success: 21 128 61;
-    --am-warning: 180 83 9;
-    --am-danger: 185 28 28;
+    --am-brand-soft: 231 225 247; /* #E7E1F7 */
+    --am-brand-ink: 47 27 110; /* #2F1B6E pressed */
+
+    /* Registry teal — the cumulative series, never the primary action */
+    --am-accent: 13 108 98; /* #0D6C62 */
+
+    /* Stamp inks */
+    --am-success: 26 106 68; /* #1A6A44 */
+    --am-warning: 138 90 11; /* #8A5A0B */
+    --am-danger: 142 36 54; /* #8E2436 */
   }
 
   .dark {
-    --am-bg: 8 12 22;
-    --am-surface: 17 24 39;
-    --am-surface-2: 30 41 59;
-    --am-border: 42 54 74;
-    --am-fg: 237 242 247;
-    --am-muted: 148 163 184;
-    --am-brand: 96 173 226;
-    --am-brand-fg: 8 12 22;
-    --am-brand-soft: 23 43 61;
-    --am-success: 74 222 128;
-    --am-warning: 251 191 36;
-    --am-danger: 248 113 113;
+    /* Night desk: the same sheet under a lamp. */
+    --am-bg: 20 19 31; /* #14131F */
+    --am-surface: 28 27 43; /* #1C1B2B */
+    --am-surface-2: 38 36 55; /* #262437 */
+    --am-border: 58 55 80; /* #3A3750 */
+    --am-rule: 48 45 68; /* #302D44 */
+
+    --am-fg: 237 235 245; /* #EDEBF5 */
+    --am-muted: 162 159 184; /* #A29FB8 */
+
+    --am-brand: 183 160 255; /* #B7A0FF */
+    --am-brand-fg: 20 19 31;
+    --am-brand-soft: 43 37 69; /* #2B2545 */
+    --am-brand-ink: 205 189 255;
+
+    --am-accent: 79 195 174; /* #4FC3AE */
+
+    --am-success: 110 219 160;
+    --am-warning: 230 180 85;
+    --am-danger: 255 138 148;
   }
 
   html {
@@ -69,6 +96,18 @@
     overflow-wrap: anywhere;
   }
 
+  /*
+   * Headings are set in Archivo at 112% width. The wide axis is the registry
+   * voice — the lettering on a certificate header — and it is the reason the
+   * product does not read as another sans-serif dashboard.
+   */
+  h1,
+  h2,
+  h3 {
+    @apply font-display font-semibold tracking-tight;
+    font-stretch: 112%;
+    font-variation-settings: 'wdth' 112;
+  }
 
   /* Visible, consistent keyboard focus everywhere. */
   :focus-visible {
@@ -76,15 +115,11 @@
     --tw-ring-offset-color: rgb(var(--am-bg));
   }
 
-  h1,
-  h2,
-  h3 {
-    @apply font-semibold tracking-tight;
-  }
-
   /* Numeric data reads better with tabular figures. */
   .tabular {
+    @apply font-mono;
     font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -98,17 +133,70 @@
 }
 
 @layer components {
+  /* ---------------------------------- Stock --------------------------------- */
+
+  /*
+   * A sheet, not a floating panel: a hairline edge and a single seated line
+   * underneath. No blur, no lifted shadow — those belong to software that is
+   * pretending to be glass.
+   */
   .am-card {
     @apply rounded-2xl border border-border bg-surface shadow-card;
   }
 
+  /* The ruled writing surface. Used behind long lists so rows sit on lines. */
+  .am-ruled {
+    background-image: theme('backgroundImage.ruled');
+    background-position: 0 0;
+  }
+
+  /* ------------------------------- Structure ------------------------------- */
+
+  /*
+   * The eyebrow is the sheet's column heading: mono, small caps spacing, ink at
+   * half strength. It labels; it never decorates.
+   */
+  .am-eyebrow {
+    @apply font-mono text-micro font-medium uppercase text-muted;
+  }
+
+  /* An index tab, as on a divider in a file: the card's own title marker. */
+  .am-tab-label {
+    @apply relative inline-flex items-center gap-2 pl-3;
+  }
+
+  .am-tab-label::before {
+    content: '';
+    @apply absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-sm bg-brand;
+  }
+
+  /*
+   * The stamp plate: where a headline figure is impressed onto the sheet. Only
+   * one of these appears on a screen — it is the loudest thing in the design.
+   */
+  .am-plate {
+    @apply relative rounded-2xl border border-brand/40 bg-brand-soft px-4 py-3;
+    box-shadow: theme('boxShadow.plate');
+  }
+
+  /* --------------------------------- Fields -------------------------------- */
+
   .am-input {
     @apply w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-fg
-      placeholder:text-muted/70 disabled:cursor-not-allowed disabled:opacity-60;
+      transition-colors placeholder:text-muted/70 hover:border-brand/40
+      focus:border-brand disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  /* Figures are typed into a form, so the fields that hold them are monospaced. */
+  input[type='number'].am-input,
+  input[type='date'].am-input,
+  input[type='time'].am-input {
+    @apply font-mono;
+    font-variant-numeric: tabular-nums;
   }
 
   .am-label {
-    @apply mb-1.5 block text-sm font-medium text-fg;
+    @apply mb-1.5 block font-mono text-micro font-medium uppercase text-muted;
   }
 
   .am-hint {
@@ -124,8 +212,12 @@
     @apply min-h-[44px] min-w-[44px];
   }
 
+  .am-focus {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2;
+  }
+
   .am-skeleton {
-    @apply animate-pulse rounded-lg bg-surface-2;
+    @apply animate-pulse rounded-md bg-surface-2;
   }
 
   /*
@@ -197,8 +289,10 @@
   main {
     min-width: 0;
   }
+
+  /* Tables in the academic record read as a printed column of figures. */
+  td,
+  th {
+    font-variant-numeric: tabular-nums;
+  }
 }
-
-
-
-

@@ -1,4 +1,11 @@
-/** AcadMap design system primitives: buttons, inputs, cards, modals, states. */
+/**
+ * AcadMap design system primitives: buttons, inputs, cards, modals, states.
+ *
+ * The vocabulary is a registry document. Controls are stamped (monospaced, upper
+ * case, squared corners), figures are set in mono because they are columns of
+ * numbers, and every card is a sheet with an index tab rather than a floating
+ * panel. Nothing here changes a component's API — only what it looks like.
+ */
 
 import {
   createContext,
@@ -25,16 +32,18 @@ type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 type Size = 'sm' | 'md' | 'lg';
 
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-brand text-brand-fg hover:opacity-90',
-  secondary: 'bg-surface-2 text-fg border border-border hover:bg-border/60',
-  ghost: 'text-fg hover:bg-surface-2',
-  danger: 'bg-danger text-white hover:opacity-90',
+  primary:
+    'bg-brand text-brand-fg border border-brand hover:bg-brand-ink hover:border-brand-ink active:translate-y-px',
+  secondary:
+    'bg-surface text-fg border border-border hover:border-brand hover:text-brand active:translate-y-px',
+  ghost: 'border border-transparent text-muted hover:text-fg hover:bg-surface-2',
+  danger: 'bg-danger text-white border border-danger hover:opacity-90 active:translate-y-px',
 };
 
 const SIZES: Record<Size, string> = {
-  sm: 'h-9 px-3 text-sm',
-  md: 'h-11 px-4 text-sm',
-  lg: 'h-12 px-6 text-base',
+  sm: 'h-9 px-3 text-micro',
+  md: 'h-11 px-4 text-micro',
+  lg: 'h-12 px-6 text-xs tracking-[0.1em]',
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -57,8 +66,9 @@ export function Button({
   return (
     <button
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-xl font-medium transition',
-        'disabled:cursor-not-allowed disabled:opacity-60',
+        // Mono, upper case, tight radius: a control on a form, not a pill.
+        'inline-flex items-center justify-center gap-2 rounded-lg font-mono font-medium uppercase',
+        'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         VARIANTS[variant],
         SIZES[size],
         className,
@@ -168,16 +178,17 @@ export function Toggle({
       onClick={() => onChange(!checked)}
       className="flex items-center gap-3 text-sm text-fg"
     >
+      {/* A switch on a form is a box that is either ticked or not. */}
       <span
         className={cn(
-          'relative h-6 w-11 shrink-0 rounded-full transition',
-          checked ? 'bg-brand' : 'bg-border',
+          'relative h-6 w-11 shrink-0 rounded-sm border transition-colors',
+          checked ? 'border-brand bg-brand' : 'border-border bg-surface-2',
         )}
       >
         <span
           className={cn(
-            'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition',
-            checked ? 'left-[22px]' : 'left-0.5',
+            'absolute top-0.5 h-[18px] w-[18px] rounded-sm bg-surface transition-all',
+            checked ? 'left-[24px]' : 'left-0.5',
           )}
         />
       </span>
@@ -206,12 +217,16 @@ export function Card({
   return (
     <section className={cn('am-card', className)}>
       {(title || action) && (
-        <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+        <header className="flex items-start justify-between gap-3 border-b border-rule bg-surface-2/60 px-4 py-3 sm:px-5">
           {/* min-w-0 on the text, shrink-0 on the control: without both, a long
               title pushes the action out of the card on a narrow screen. */}
           <div className="min-w-0">
-            {title && <h2 className="text-base font-semibold">{title}</h2>}
-            {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
+            {title && (
+              <h2 className="am-tab-label text-sm font-semibold uppercase tracking-[0.06em]">
+                {title}
+              </h2>
+            )}
+            {description && <p className="mt-1 pl-3 text-sm text-muted">{description}</p>}
           </div>
           {action && <div className="shrink-0">{action}</div>}
         </header>
@@ -238,11 +253,25 @@ export function Stat({
     success: 'text-success',
     warning: 'text-warning',
   } as const;
+  const rules = {
+    default: 'before:bg-border',
+    brand: 'before:bg-brand',
+    success: 'before:bg-success',
+    warning: 'before:bg-warning',
+  } as const;
   return (
-    <div className="am-card px-4 py-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
-      <p className={cn('tabular mt-1.5 text-2xl font-semibold', tones[tone])}>{value}</p>
-      {sub && <p className="mt-1 text-xs text-muted">{sub}</p>}
+    <div
+      className={cn(
+        // The left rule is the column edge on a result sheet: it says which
+        // figure this is without spending a word on it.
+        'am-card relative overflow-hidden px-4 py-4 pl-5',
+        'before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[""]',
+        rules[tone],
+      )}
+    >
+      <p className="am-eyebrow">{label}</p>
+      <p className={cn('tabular mt-2 text-3xl font-medium leading-none', tones[tone])}>{value}</p>
+      {sub && <p className="mt-2 text-xs text-muted">{sub}</p>}
     </div>
   );
 }
@@ -255,16 +284,17 @@ export function Badge({
   tone?: 'neutral' | 'brand' | 'success' | 'warning' | 'danger';
 }) {
   const tones = {
-    neutral: 'bg-surface-2 text-muted',
-    brand: 'bg-brand-soft text-brand',
-    success: 'bg-success/10 text-success',
-    warning: 'bg-warning/10 text-warning',
-    danger: 'bg-danger/10 text-danger',
+    neutral: 'border-border bg-surface-2 text-muted',
+    brand: 'border-brand/40 bg-brand-soft text-brand',
+    success: 'border-success/40 bg-success/10 text-success',
+    warning: 'border-warning/40 bg-warning/10 text-warning',
+    danger: 'border-danger/40 bg-danger/10 text-danger',
   } as const;
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+        // Stamped, not rounded: a mark applied to a record.
+        'inline-flex items-center rounded-sm border px-1.5 py-0.5 font-mono text-micro font-medium uppercase',
         tones[tone],
       )}
     >
@@ -287,10 +317,11 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border px-6 py-10 text-center">
-      {icon && <div className="mb-3 text-muted">{icon}</div>}
-      <h3 className="text-base font-semibold">{title}</h3>
-      {description && <p className="mt-1 max-w-sm text-sm text-muted">{description}</p>}
+    // A blank field on a form, hatched the way an unused box is struck through.
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-hatch px-6 py-10 text-center">
+      {icon && <div className="mb-3 text-brand">{icon}</div>}
+      <h3 className="text-sm font-semibold uppercase tracking-[0.06em]">{title}</h3>
+      {description && <p className="mt-1.5 max-w-sm text-sm text-muted">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );
@@ -310,7 +341,7 @@ export function PageLoader() {
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div className="am-card border-danger/40 px-5 py-6 text-center">
+    <div className="am-card border-danger/50 px-5 py-6 text-center">
       <XCircle className="mx-auto h-6 w-6 text-danger" />
       <p className="mt-2 text-sm text-fg">{message}</p>
       {onRetry && (
@@ -376,7 +407,7 @@ export function Modal({
     <div className="fixed inset-0 z-50 flex items-end justify-center overscroll-contain p-0 sm:items-center sm:p-4">
 
       <div
-        className="absolute inset-0 bg-black/50 animate-fade-in"
+        className="absolute inset-0 bg-fg/45 animate-fade-in"
         onClick={onClose}
         aria-hidden
       />
@@ -384,15 +415,17 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative z-10 flex max-h-[92dvh] w-full max-w-lg flex-col animate-slide-up rounded-t-2xl border border-border bg-surface shadow-card sm:max-h-[85dvh] sm:rounded-2xl"
+        className="relative z-10 flex max-h-[92dvh] w-full max-w-lg flex-col animate-slide-up rounded-t-2xl border border-border bg-surface shadow-lift sm:max-h-[85dvh] sm:rounded-2xl"
       >
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-3">
-          <h2 className="min-w-0 truncate text-base font-semibold">{title}</h2>
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-rule bg-surface-2/60 px-5 py-3">
+          <h2 className="am-tab-label min-w-0 truncate text-sm font-semibold uppercase tracking-[0.06em]">
+            {title}
+          </h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="am-touch -mr-2 grid shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2"
+            className="am-touch -mr-2 grid shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
           >
             <X className="h-5 w-5" />
           </button>
@@ -402,7 +435,7 @@ export function Modal({
           {children}
         </div>
         {footer && (
-          <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-5 py-3">
+          <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-rule px-5 py-3">
             {footer}
           </footer>
         )}
@@ -498,7 +531,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className="pointer-events-auto flex w-full max-w-sm animate-slide-up items-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm shadow-card"
+            className="pointer-events-auto flex w-full max-w-sm animate-slide-up items-center gap-2 rounded-2xl border border-border bg-surface px-4 py-3 text-sm shadow-lift"
           >
             {toast.tone === 'success' && <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />}
             {toast.tone === 'error' && <XCircle className="h-4 w-4 shrink-0 text-danger" />}
@@ -523,19 +556,20 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div className="min-w-0 flex-1 basis-[16rem]">
-        <h1 className="text-xl font-semibold sm:text-2xl">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted">{description}</p>}
+    <div className="mb-5 border-b border-rule pb-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-[16rem]">
+          <h1 className="text-2xl font-semibold leading-tight sm:text-[1.75rem]">{title}</h1>
+          {description && <p className="mt-1.5 text-sm text-muted">{description}</p>}
+        </div>
+        {/*
+          The action wraps to its own line as a whole, rather than its own contents
+          wrapping: a page header's button ending up half under its label is the
+          "displaced button" this fixes.
+        */}
+        {action && <div className="am-row-x shrink-0 justify-end">{action}</div>}
       </div>
-      {/*
-        The action wraps to its own line as a whole, rather than its own contents
-        wrapping: a page header's button ending up half under its label is the
-        "displaced button" this fixes.
-      */}
-      {action && <div className="am-row-x shrink-0 justify-end">{action}</div>}
     </div>
-
   );
 }
 
@@ -543,10 +577,18 @@ export function Progress({ value, label }: { value: number; label?: string }) {
   const clamped = Math.max(0, Math.min(100, Math.round(value)));
   return (
     <div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-surface-2">
-        <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${clamped}%` }} />
+      <div className="h-2.5 w-full overflow-hidden rounded-sm border border-border bg-surface-2">
+        <div
+          className="h-full origin-left animate-tally bg-brand transition-all"
+          style={{ width: `${clamped}%` }}
+        />
       </div>
-      {label && <p className="mt-1 text-xs text-muted">{label}</p>}
+      {label && (
+        <p className="mt-1.5 flex items-baseline justify-between gap-2 text-xs text-muted">
+          <span>{label}</span>
+          <span className="tabular shrink-0">{clamped}%</span>
+        </p>
+      )}
     </div>
   );
 }

@@ -105,34 +105,35 @@ export function ServiceWorkerBanner() {
       role="status"
       aria-live="polite"
     >
+      {/* Both banners speak the app's palette through tokens, so they follow the
+          theme instead of carrying their own light and dark variants. */}
       {offline && (
-        <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-lg dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+        <p className="rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning shadow-lift">
           You are offline. Your work is saved on this device and the GPA calculator
           still works.
         </p>
       )}
 
       {updateReady && applyUpdate && (
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900">
-          <span className="flex-1 text-slate-700 dark:text-slate-200">
-            A new version of AcadMap is ready.
-          </span>
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-surface px-4 py-3 text-sm shadow-lift">
+          <span className="flex-1">A new version of AcadMap is ready.</span>
           <button
             type="button"
             onClick={() => setUpdateReady(false)}
-            className="rounded-lg px-3 py-1.5 font-medium text-slate-500 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 dark:text-slate-400 dark:hover:bg-slate-800"
+            className="am-focus rounded-lg px-3 py-1.5 font-mono text-micro uppercase text-muted hover:bg-surface-2 hover:text-fg"
           >
             Later
           </button>
           <button
             type="button"
             onClick={applyUpdate}
-            className="rounded-lg bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+            className="am-focus rounded-lg border border-brand bg-brand px-3 py-1.5 font-mono text-micro uppercase text-brand-fg hover:bg-brand-ink"
           >
             Reload
           </button>
         </div>
       )}
+
     </div>
   );
 }

@@ -25,7 +25,8 @@ export function Tabs({
       className={cn(
         // `am-scroll-x` lets a long tab strip scroll to the screen edge on a
         // phone instead of squeezing the labels.
-        'am-scroll-x mb-4 flex gap-1 border-b border-border',
+        'am-scroll-x mb-4 flex gap-0 border-b border-border',
+
         className,
       )}
 
@@ -40,11 +41,14 @@ export function Tabs({
             aria-selected={active}
             onClick={() => onChange(tab.value)}
             className={cn(
-              'am-focus whitespace-nowrap rounded-t-lg px-3 py-2 text-sm font-medium',
+              // Dividers in a file: the selected one is pulled forward, marked
+              // with a violet rule at its foot, and the rest stay filed away.
+              'am-focus -mb-px whitespace-nowrap px-3.5 py-2.5 font-mono text-micro font-medium uppercase transition-colors',
               active
-                ? 'border-b-2 border-brand text-brand'
-                : 'border-b-2 border-transparent text-muted hover:text-fg',
+                ? 'rounded-t-lg border border-b-2 border-border border-b-brand bg-surface text-brand'
+                : 'border border-transparent border-b-border text-muted hover:text-fg',
             )}
+
           >
             {tab.label}
           </button>
