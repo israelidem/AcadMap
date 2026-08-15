@@ -16,13 +16,40 @@
  * Runs on the Node runtime (the default): the Postgres driver needs TCP.
  */
 
-import { auth } from '../_lib/auth';
 import { toVercelHandler } from '../_lib/vercel';
 
 /*
  * Wrapped, like every other endpoint: Vercel's Node runtime calls the default
  * export as `(req, res)`, and handing Better Auth a Node `IncomingMessage` in
- * place of a `Request` is what made every auth route answer 500 in production
- * while working locally. See `_lib/vercel.ts`.
+ * place of a `Request` is what made this route unable to answer at all. See
+ * `_lib/vercel.ts`.
+ *
+ * TEMPORARY: the auth module is loaded inside the handler rather than imported
+ * at the top, and any failure is reported in the response. A module that throws
+ * while loading takes the whole function down before it can answer, and Vercel
+ * turns that into a bare FUNCTION_INVOCATION_FAILED with the reason visible only
+ * in runtime logs. Loading it here makes the reason reachable. Restore the plain
+ * top-level `import { auth } from '../_lib/auth'` once production is healthy.
  */
-export default toVercelHandler((request) => auth.handler(request));
+export default toVercelHandler(async (request) => {
+  try {
+    const { auth } = await import('../_lib/auth');
+    return auth.handler(request);
+  } catch (error) {
+    const err = error as Error & { code?: string };
+    return new Response(
+      JSON.stringify(
+        {
+          error: 'auth module failed to load',
+          name: err.name,
+          code: err.code,
+          message: err.message,
+          stack: (err.stack ?? '').split('\n').slice(0, 8),
+        },
+        null,
+        2,
+      ),
+      { status: 500, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
+    );
+  }
+});
