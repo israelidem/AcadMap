@@ -210,13 +210,7 @@ async function run(): Promise<void> {
         ? error.isOffline
           ? null // Offline is not a failure worth showing; it will retry.
           : error.status === 401
-            ? // Signed in on this device but not with the server: the account was
-              // created here before AcadMap kept accounts, so there is no server
-              // session to sync with and no way to make one without the password.
-              // Saying "unauthorised" would be useless; this says what to do.
-              'This device is signed in, but the account has not been set up on ' +
-              'AcadMap yet, so nothing can sync. Sign out and sign in again with ' +
-              'the same details to finish setting it up — your work stays where it is.'
+            ? endSignedOutSession()
             : error.message
         : 'Sync could not finish. It will try again shortly.';
     setState({ running: false, error: message });
@@ -239,6 +233,28 @@ async function run(): Promise<void> {
  * for ever. Entries belonging to another account on this device are left alone,
  * to be sent when that student signs in.
  */
+
+/**
+ * Gives up on a session the server has rejected, and says so in a way that leads
+ * somewhere.
+ *
+ * A 401 means this device's session has expired or was signed out elsewhere. The
+ * previous message blamed an account created before AcadMap had accounts — no
+ * longer possible — and told the student to sign out and back in, which the
+ * installed app then repeated for as long as it was open.
+ *
+ * The stale session is cleared as well as reported, so the route guard asks for a
+ * sign-in rather than leaving an app that looks signed in and cannot sync. Nothing
+ * is deleted: the academic data stays in this browser under the same account, and
+ * the next sign-in resumes syncing with the outbox still queued.
+ */
+function endSignedOutSession(): string {
+  update((current) => ({ ...current, sessionUserId: null }));
+  return (
+    'Your session has ended, so syncing has stopped. Sign in again to carry on — ' +
+    'nothing on this device has been lost.'
+  );
+}
 
 /** A queue entry and the version of it that went to the server. */
 interface SentEntry {
