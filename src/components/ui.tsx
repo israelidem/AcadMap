@@ -14,6 +14,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
@@ -74,6 +75,7 @@ export function Button({
         className,
       )}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...rest}
     >
       {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : icon}
@@ -93,6 +95,8 @@ interface FieldProps {
 
 export function Field({ label, hint, error, children }: FieldProps) {
   const id = useId();
+  const hintId = `${id}-hint`;
+  const errorId = `${id}-error`;
   return (
     <div>
       {label && (
@@ -101,7 +105,7 @@ export function Field({ label, hint, error, children }: FieldProps) {
         </label>
       )}
       {children(id)}
-      {error ? <p className="am-error">{error}</p> : hint ? <p className="am-hint">{hint}</p> : null}
+      {error ? <p id={errorId} className="am-error" role="alert">{error}</p> : hint ? <p id={hintId} className="am-hint">{hint}</p> : null}
     </div>
   );
 }
@@ -120,6 +124,7 @@ export function Input({ label, hint, error, className, ...rest }: InputProps) {
           id={id}
           className={cn('am-input', error && 'border-danger', className)}
           aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
           {...rest}
         />
       )}
@@ -137,7 +142,7 @@ export function Select({ label, hint, error, className, children, ...rest }: Sel
   return (
     <Field label={label} hint={hint} error={error}>
       {(id) => (
-        <select id={id} className={cn('am-input pr-8', error && 'border-danger', className)} {...rest}>
+        <select id={id} className={cn('am-input pr-8', error && 'border-danger', className)} aria-invalid={error ? true : undefined} aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined} {...rest}>
           {children}
         </select>
       )}
@@ -155,7 +160,7 @@ export function Textarea({ label, hint, error, className, ...rest }: TextareaPro
   return (
     <Field label={label} hint={hint} error={error}>
       {(id) => (
-        <textarea id={id} className={cn('am-input min-h-[96px]', error && 'border-danger', className)} {...rest} />
+        <textarea id={id} className={cn('am-input min-h-[96px]', error && 'border-danger', className)} aria-invalid={error ? true : undefined} aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined} {...rest} />
       )}
     </Field>
   );
@@ -368,16 +373,38 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  const titleId = useId();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!open) return;
+    previousFocus.current = document.activeElement as HTMLElement | null;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
+      if (event.key !== 'Tab') return;
+      const dialog = document.querySelector(`[aria-labelledby="${titleId}"]`);
+      if (!(dialog instanceof HTMLElement)) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'),
+      ).filter((element) => !element.hasAttribute('disabled'));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
+    window.setTimeout(() => closeRef.current?.focus(), 0);
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = '';
+      previousFocus.current?.focus();
     };
   }, [open, onClose]);
 
@@ -414,15 +441,16 @@ export function Modal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
         className="relative z-10 flex max-h-[92dvh] w-full max-w-lg flex-col animate-slide-up rounded-t-2xl border border-border bg-surface shadow-lift sm:max-h-[85dvh] sm:rounded-2xl"
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-rule bg-surface-2/60 px-5 py-3">
-          <h2 className="am-tab-label min-w-0 truncate text-sm font-semibold uppercase tracking-[0.06em]">
+          <h2 id={titleId} className="am-tab-label min-w-0 truncate text-sm font-semibold uppercase tracking-[0.06em]">
             {title}
           </h2>
           <button
             type="button"
+            ref={closeRef}
             onClick={onClose}
             aria-label="Close"
             className="am-touch -mr-2 grid shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"

@@ -6,7 +6,7 @@
  */
 
 import { profileSchema } from '../shared/schemas.js';
-import { one } from './_lib/db.js';
+import { one, sql } from './_lib/db.js';
 import {
   fail,
   json,
@@ -16,21 +16,28 @@ import {
   readBody,
   requireSameOrigin,
   requireUser,
-  track,
 } from './_lib/http.js';
 import { toVercelHandler } from './_lib/vercel.js';
 
-const SELECT = `SELECT user_id       AS "userId",
+const SELECT = `SELECT user_id       AS "id",
+                        user_id       AS "userId",
                        full_name     AS "fullName",
                        institution,
                        faculty,
                        department,
                        programme,
-                       level,
-                       expected_graduation_year AS "expectedGraduationYear",
-                       grading_system_id        AS "gradingSystemId",
-                       onboarding_completed_at  AS "onboardingCompletedAt"
-                  FROM profiles WHERE user_id = $1`;
+                        level,
+                        expected_graduation_year AS "expectedGraduationYear",
+                        avatar_url                AS "avatarDataUrl",
+                        grading_system_id        AS "gradingSystemId",
+                        term_structure           AS "termStructure",
+                        onboarding_completed_at  AS "onboardingCompletedAt"
+                   FROM profiles WHERE user_id = $1`;
+
+async function ensureProfile(userId: string): Promise<void> {
+  await sql(`INSERT INTO profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [userId]);
+  await sql(`INSERT INTO preferences (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [userId]);
+}
 
 export default toVercelHandler(handler);
 
@@ -40,6 +47,7 @@ async function handler(request: Request): Promise<Response> {
 
   const auth = await requireUser(request);
   if (!auth.ok) return auth.response;
+  await ensureProfile(auth.user.id);
 
   if (request.method === 'GET') {
     const profile = await one(SELECT, [auth.user.id]);
@@ -62,15 +70,17 @@ async function handler(request: Request): Promise<Response> {
          department = COALESCE($5, department),
          programme = COALESCE($6, programme),
          level = COALESCE($7, level),
-         expected_graduation_year = COALESCE($8, expected_graduation_year),
-         grading_system_id = COALESCE($9, grading_system_id),
-         onboarding_completed_at = COALESCE(onboarding_completed_at, now())
-       WHERE user_id = $1
-       RETURNING user_id AS "userId", full_name AS "fullName", institution, faculty,
-                 department, programme, level,
-                 expected_graduation_year AS "expectedGraduationYear",
-                 grading_system_id AS "gradingSystemId",
-                 onboarding_completed_at AS "onboardingCompletedAt"`,
+         expected_graduation_year = CASE WHEN $8::boolean THEN $9 ELSE expected_graduation_year END,
+         avatar_url = CASE WHEN $10::boolean THEN $11 ELSE avatar_url END,
+         grading_system_id = CASE WHEN $12::boolean THEN $13 ELSE grading_system_id END,
+         term_structure = CASE WHEN $14::boolean THEN $15 ELSE term_structure END
+        WHERE user_id = $1
+        RETURNING user_id AS "id", user_id AS "userId", full_name AS "fullName", institution, faculty,
+                  department, programme, level,
+                  expected_graduation_year AS "expectedGraduationYear",
+                  avatar_url AS "avatarDataUrl", grading_system_id AS "gradingSystemId",
+                  term_structure AS "termStructure",
+                  onboarding_completed_at AS "onboardingCompletedAt"`,
       [
         auth.user.id,
         data.fullName ?? null,
@@ -79,12 +89,17 @@ async function handler(request: Request): Promise<Response> {
         data.department ?? null,
         data.programme ?? null,
         data.level ?? null,
-        data.expectedGraduationYear ?? null,
-        data.gradingSystemId ?? null,
-      ],
-    );
+         data.expectedGraduationYear !== undefined,
+         data.expectedGraduationYear ?? null,
+         data.avatarDataUrl !== undefined,
+         data.avatarDataUrl ?? null,
+         data.gradingSystemId !== undefined,
+         data.gradingSystemId ?? null,
+         data.termStructure !== undefined,
+         data.termStructure ?? null,
+       ],
+     );
 
-    await track('onboarding_completed', auth.user.id);
     return profile ? json({ profile }) : fail(404, 'Profile not found');
   }
 

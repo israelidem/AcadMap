@@ -222,7 +222,14 @@ export function buildFreeIntervals(input: PlannerInput): FreeInterval[] {
       .filter((slot) => slot.end > slot.start)
       .sort((a, b) => a.start - b.start);
 
+    const mergedSlots: Array<{ start: number; end: number }> = [];
     for (const slot of daySlots) {
+      const previous = mergedSlots.at(-1);
+      if (previous && slot.start <= previous.end) previous.end = Math.max(previous.end, slot.end);
+      else mergedSlots.push({ ...slot });
+    }
+
+    for (const slot of mergedSlots) {
       let segments: Array<[number, number]> = [[slot.start, slot.end]];
       for (const [bStart, bEnd] of busy) {
         const next: Array<[number, number]> = [];

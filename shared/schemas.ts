@@ -11,7 +11,12 @@ const trimmed = (min: number, max: number) => z.string().trim().min(min).max(max
 export const idSchema = z.string().min(1).max(64);
 export const dateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD');
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the format YYYY-MM-DD')
+  .refine((value) => {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  }, 'Enter a real calendar date');
 export const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use the format HH:mm');
 
 export const emailSchema = trimmed(3, 254).email('Enter a valid email address');
@@ -232,6 +237,47 @@ export const feedbackSchema = z.object({
 });
 
 export const feedbackStatusSchema = z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']);
+
+/**
+ * The closed set of product-analytics event names.
+ *
+ * Closed deliberately: the owner console counts these names, and an endpoint that
+ * accepted any string would let a client write rows nothing reads — or flood the
+ * table with invented names. Must stay in step with `UsageEvent['name']`.
+ */
+export const usageEventNameSchema = z.enum([
+  'registered',
+  'onboarding_completed',
+  'course_created',
+  'result_recorded',
+  'plan_generated',
+  'session_completed',
+  'session_skipped',
+  'gpa_calculated',
+  'snapshot_created',
+  'app_opened',
+  'guest_data_imported',
+]);
+
+/**
+ * A batch of events. Batched because these are recorded as a student works and
+ * one request per tap would be both slow and wasteful; capped so a single call
+ * cannot write an unbounded number of rows.
+ */
+export const usageEventsSchema = z.object({
+  events: z
+    .array(
+      z.object({
+        name: usageEventNameSchema,
+        // Recorded on the device, so a session completed offline lands on the day
+        // it happened rather than the day the device next reached the network.
+        at: z.string().datetime().optional(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
 
 /* --------------------------------- admin -------------------------------- */
 

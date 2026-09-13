@@ -15,9 +15,11 @@
  */
 
 import { useMemo, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import type { FeatureFlags, FeedbackStatus } from '@shared/types';
-import { dailyCounts, daysAgoIso } from '@/lib/analytics';
+import { figureSource, plotValues, useAdminOverview } from '@/lib/adminMetrics';
 import {
+
   createAnnouncement,
   deleteAnnouncement,
   setFeatureFlag,
@@ -173,43 +175,58 @@ export default function Admin() {
   const chartDays = Math.max(14, days);
 
   /*
+   * Every figure on this page comes from the database, for every account.
+   *
+   * It used to be counted out of this browser's own store, which made the console
+   * a report on one device: the same deployment showed different numbers on a
+   * laptop and a phone, and nothing at all in a fresh browser. Account registers
+   * below still read the synced store, but no counter does.
+   */
+  const overview = useAdminOverview(days);
+  const figures = useMemo(() => figureSource(overview.data), [overview.data]);
+
+  /*
    * The three series are kept apart rather than summed. A rise in app opens with
    * flat results recorded is a different product problem from a rise in both,
    * and the old single-series chart could not tell them apart.
    */
   const plot = useMemo(
     () => [
-      { label: 'Opens', values: dailyCounts(['app_opened'], chartDays), tone: 'soft' as const },
+      {
+        label: 'Opens',
+        values: plotValues(overview.data, 'app_opened', chartDays),
+        tone: 'soft' as const,
+      },
       {
         label: 'Results',
-        values: dailyCounts(['result_recorded'], chartDays),
+        values: plotValues(overview.data, 'result_recorded', chartDays),
         tone: 'brand' as const,
       },
       {
         label: 'Sessions',
-        values: dailyCounts(['session_completed'], chartDays),
+        values: plotValues(overview.data, 'session_completed', chartDays),
         tone: 'accent' as const,
       },
     ],
-    // The database object changes identity on every write, which is the signal
-    // that a recount is due.
-    [chartDays, db],
+    [chartDays, overview.data],
   );
 
   const students = db.users.filter((row) => row.role !== 'OWNER');
   const profileOf = (userId: string) => db.profiles.find((row) => row.userId === userId);
 
-  const onboarded = students.filter((row) => profileOf(row.id)?.onboardingCompletedAt).length;
-  const activeStreaks = db.users.filter((row) =>
-    db.sessions.some(
-      (session) =>
-        session.userId === row.id &&
-        session.status === 'COMPLETED' &&
-        session.date >= daysAgoIso(2).slice(0, 10),
-    ),
-  ).length;
+  /*
+   * Funnel counts come from the server when it has answered, and fall back to
+   * the register below only so the page is not blank on the first paint.
+   */
+  const totals = overview.data?.totals;
+  const registeredCount = totals?.students ?? students.length;
+  const onboardedCount =
+    totals?.onboarded ??
+    students.filter((row) => profileOf(row.id)?.onboardingCompletedAt).length;
+  const studyingCount = totals?.studying ?? 0;
 
   const filteredUsers = useMemo(() => {
+
     const query = search.trim().toLowerCase();
     if (!query) return students;
     return students.filter((row) => {
@@ -311,9 +328,49 @@ export default function Admin() {
     },
   ];
 
+  /*
+   * The period picker, plus where these numbers came from and when.
+   *
+   * Stated on the page because the whole defect was an owner not knowing that
+   * what they were reading was one browser's copy. "Server · 00:41" is small,
+   * but it is the difference between trusting a figure and guessing at it.
+   */
   const rangeControl = (
-    <Segmented value={range} onChange={setRange} options={RANGES} label="Reporting period" />
+    <>
+      <Segmented value={range} onChange={setRange} options={RANGES} label="Reporting period" />
+
+      <span className="am-eyebrow whitespace-nowrap">
+        {overview.error ? (
+          <span className="text-danger">Stale</span>
+        ) : overview.loading ? (
+          'Loading…'
+        ) : (
+          <>
+            Server ·{' '}
+            <span className="tabular text-fg">
+              {overview.fetchedAt
+                ? overview.fetchedAt.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : '—'}
+            </span>
+          </>
+        )}
+      </span>
+
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={overview.refresh}
+        disabled={overview.refreshing}
+        icon={<RefreshCw className={cn('h-3.5 w-3.5', overview.refreshing && 'animate-spin')} />}
+      >
+        {overview.refreshing ? 'Refreshing' : 'Refresh'}
+      </Button>
+    </>
   );
+
 
   return (
     <OpsShell
@@ -335,21 +392,31 @@ export default function Admin() {
       {tab === 'overview' && (
         <div className="space-y-5">
           {/*
-           * A brand-new instance used to greet the owner with twelve bold zeros,
-           * which reads as a broken deployment. Say plainly that it is empty, and
-           * why analytics may look empty even when the product is live.
+           * Two states worth naming rather than leaving the owner to infer from a
+           * screen of zeros: the server would not answer, and the server answered
+           * that there is genuinely nothing yet.
            */}
-          {db.usageEvents.length === 0 && students.length === 0 && (
-            <Card title="New instance">
+          {overview.error && (
+            <Card title="Metrics unavailable">
               <p className="max-w-2xl text-sm leading-relaxed text-muted">
-                Nothing has been recorded on this device yet. Usage counters and the activity plot
-                are stored locally in the browser you are reading them in, so a fresh browser —
-                or a private window — always starts at zero, even when students are using the app
-                elsewhere. Accounts, feedback and announcements below are read from the database
-                and are accurate.
+                {overview.error} Figures below are the last successful reading
+                {overview.fetchedAt ? ` from ${overview.fetchedAt.toLocaleTimeString()}` : ''}.
+                Accounts, feedback and announcements are read from your synced copy and are
+                unaffected.
               </p>
             </Card>
           )}
+
+          {!overview.error && !overview.loading && registeredCount === 0 && (
+            <Card title="New instance">
+              <p className="max-w-2xl text-sm leading-relaxed text-muted">
+                No accounts have registered yet, so every figure below is genuinely zero rather
+                than missing. These counts are aggregated in the database across all devices, so
+                they will be the same in any browser you open the console in.
+              </p>
+            </Card>
+          )}
+
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
             <Card
@@ -360,18 +427,18 @@ export default function Admin() {
             </Card>
 
             <Card title="Accounts" description="How far people get after signing up.">
-              {students.length === 0 ? (
+              {registeredCount === 0 ? (
                 <BlankRegister
                   title="No accounts yet"
                   description="Registered students appear here as soon as the first account is created."
                 />
               ) : (
                 <AccountFunnel
-                  registered={students.length}
-                  onboarded={onboarded}
-                  active={activeStreaks}
-                  suspended={students.filter((row) => row.status === 'SUSPENDED').length}
-                  deleted={students.filter((row) => row.status === 'DELETED').length}
+                  registered={registeredCount}
+                  onboarded={onboardedCount}
+                  active={studyingCount}
+                  suspended={totals?.suspended ?? 0}
+                  deleted={totals?.deleted ?? 0}
                 />
               )}
             </Card>
@@ -382,8 +449,9 @@ export default function Admin() {
             description={`Counted over the selected period, against the ${days} days before it.`}
             bodyClassName="px-4 pb-4 pt-0 sm:px-5"
           >
-            <FiguresLedger groups={overviewGroups} days={days} />
+            <FiguresLedger groups={overviewGroups} days={days} source={figures} />
           </Card>
+
         </div>
       )}
 
@@ -510,7 +578,8 @@ export default function Admin() {
             description={`Counted over the selected period, against the ${days} days before it.`}
             bodyClassName="px-4 pb-4 pt-0 sm:px-5"
           >
-            <FiguresLedger groups={analyticsGroups} days={days} />
+            <FiguresLedger groups={analyticsGroups} days={days} source={figures} />
+
           </Card>
 
           <Card title="Daily activity" description="The same series as the overview, for reference.">

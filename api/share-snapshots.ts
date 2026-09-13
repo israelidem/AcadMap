@@ -97,6 +97,36 @@ async function handler(request: Request): Promise<Response> {
         payload.cgpa = gpa;
         payload.completedUnits = totalUnits;
       }
+      if (field === 'termGpa') {
+        const { rows } = await sql<{ termId: string; units: number; gradePoint: number; countsInGpa: boolean }>(
+          `SELECT term_id AS "termId", units::float8 AS units, grade_point::float8 AS "gradePoint",
+                  counts_in_gpa AS "countsInGpa"
+             FROM results WHERE user_id = $1`,
+          [userId],
+        );
+        const currentTerm = await one<{ id: string }>(
+          `SELECT id FROM terms WHERE user_id = $1 AND is_current = true ORDER BY position DESC LIMIT 1`,
+          [userId],
+        );
+        const current = currentTerm ? rows.filter((row) => row.termId === currentTerm.id) : [];
+        payload.termGpa = computeGpa(current).gpa;
+      }
+      if (field === 'streak') {
+        const { rows } = await sql<{ date: string }>(
+          `SELECT DISTINCT date::text AS date FROM study_sessions
+             WHERE user_id = $1 AND status = 'COMPLETED' ORDER BY date DESC`,
+          [userId],
+        );
+        const today = new Date().toISOString().slice(0, 10);
+        const dates = new Set(rows.map((row) => row.date));
+        let cursor = new Date(`${dates.has(today) ? today : new Date(Date.now() - 86400000).toISOString().slice(0, 10)}T00:00:00Z`);
+        let streak = 0;
+        while (dates.has(cursor.toISOString().slice(0, 10))) {
+          streak += 1;
+          cursor = new Date(cursor.getTime() - 86400000);
+        }
+        payload.streak = streak;
+      }
     }
 
     const token = createShareToken();

@@ -34,8 +34,14 @@ async function handler(request: Request): Promise<Response> {
   const token = new URL(request.url).pathname.split('/').filter(Boolean).pop() ?? '';
   if (!/^[0-9a-f]{20,128}$/.test(token)) return fail(404, 'Snapshot not found');
 
-  const snapshot = await one<{ id: string; payload: unknown; createdAt: string }>(
-    `SELECT id, payload, created_at AS "createdAt"
+  const snapshot = await one<{
+    id: string;
+    fields: string[];
+    payload: Record<string, string | number>;
+    createdAt: string;
+    expiresAt: string | null;
+  }>(
+    `SELECT id, fields, payload, created_at AS "createdAt", expires_at AS "expiresAt"
        FROM share_snapshots
       WHERE token = $1
         AND revoked_at IS NULL
@@ -44,11 +50,17 @@ async function handler(request: Request): Promise<Response> {
   );
   if (!snapshot) return fail(404, 'This snapshot is no longer available.');
 
-  await sql('UPDATE share_snapshots SET views = views + 1 WHERE id = $1', [snapshot.id]);
+  void sql('UPDATE share_snapshots SET views = views + 1 WHERE id = $1', [snapshot.id]).catch(() => {});
 
   return json(
-    { snapshot: { payload: snapshot.payload, createdAt: snapshot.createdAt } },
-    // Short public cache: cheap on the free tier, still fresh enough.
-    { headers: { 'Cache-Control': 'public, max-age=60' } },
+    {
+      snapshot: {
+        fields: snapshot.fields,
+        payload: snapshot.payload,
+        createdAt: snapshot.createdAt,
+        expiresAt: snapshot.expiresAt,
+      },
+    },
+    { headers: { 'Cache-Control': 'private, no-store', 'Referrer-Policy': 'no-referrer' } },
   );
 }

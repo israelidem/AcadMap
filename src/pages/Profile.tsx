@@ -10,9 +10,9 @@ import { Copy, LogOut, Trash2 } from 'lucide-react';
 import type { ShareField } from '@shared/types';
 import { round } from '@shared/gpa';
 import { deleteAccount, logout } from '@/lib/auth';
+import { api } from '@/lib/api';
 
 import {
-  createSnapshot,
   deleteSnapshot,
   revokeSnapshot,
   saveProfile,
@@ -65,6 +65,8 @@ export default function Profile() {
   });
   const [selected, setSelected] = useState<ShareField[]>(['fullName', 'programme', 'cgpa', 'level']);
   const [expiryDays, setExpiryDays] = useState('7');
+  const [createdShareUrl, setCreatedShareUrl] = useState<string | null>(null);
+  const [creatingShare, setCreatingShare] = useState(false);
 
   /* Deleting the account: password-confirmed, in a modal, never one click. */
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -215,30 +217,49 @@ export default function Profile() {
             </div>
             <div className="mt-4">
               <Button
+                loading={creatingShare}
                 onClick={() => {
                   if (selected.length === 0) {
                     toast('Select at least one field.', 'error');
                     return;
                   }
-                  const payload: Record<string, string | number> = {};
-                  selected.forEach((field) => {
-                    payload[field] = snapshotValue(field);
-                  });
-                  const snapshot = createSnapshot(
-                    user.id,
-                    selected,
-                    payload,
-                    Number(expiryDays) || null,
-                  );
-                  toast('Snapshot created.');
-                  void navigator.clipboard
-                    ?.writeText(`${window.location.origin}/share/${snapshot.token}`)
-                    .catch(() => undefined);
+                  setCreatingShare(true);
+                  api.createShareSnapshot({
+                    fields: selected,
+                    expiresInDays: Number(expiryDays) || null,
+                  })
+                    .then(async ({ snapshot }) => {
+                      const url = new URL(snapshot.url, window.location.origin).toString();
+                      setCreatedShareUrl(url);
+                      try {
+                        await navigator.clipboard?.writeText(url);
+                        toast('Snapshot created and link copied.');
+                      } catch {
+                        toast('Snapshot created. Copy the link below.', 'info');
+                      }
+                    })
+                    .catch((error: unknown) => {
+                      toast(error instanceof Error ? error.message : 'Could not create snapshot.', 'error');
+                    })
+                    .finally(() => setCreatingShare(false));
                 }}
               >
                 Generate snapshot link
               </Button>
             </div>
+            {createdShareUrl && (
+              <div className="mt-4 grid gap-2">
+                <Input label="Snapshot link" readOnly value={createdShareUrl} />
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => void navigator.clipboard?.writeText(createdShareUrl).then(() => toast('Link copied.'))}>
+                    Copy link
+                  </Button>
+                  <a href={createdShareUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center rounded-lg border border-border px-3 font-mono text-micro uppercase text-muted hover:border-brand hover:text-brand">
+                    Open link
+                  </a>
+                </div>
+              </div>
+            )}
           </Card>
 
           <Card title="Your snapshots" description="Revoke or delete at any time.">

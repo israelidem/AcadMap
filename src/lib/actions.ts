@@ -35,7 +35,7 @@ import type {
 } from '@shared/types';
 import { generateStudyPlan, type PlannerConfig } from '@shared/scheduler';
 import { toMinutes, todayStr } from '@shared/time';
-import { getDatabase, update } from './store';
+import { getDatabase, removeRows, update } from './store';
 import { nowIso, uid } from './utils';
 import { trackEvent } from './analytics';
 
@@ -184,6 +184,7 @@ export function updateAcademicYear(
 /** Deletes a year with its terms, courses, topics and results. */
 export function deleteAcademicYear(userId: ID, yearId: ID): void {
   const db = getDatabase();
+  if (!db.academicYears.some((row) => row.id === yearId && row.userId === userId)) return;
   const termIds = new Set(
     db.terms.filter((term) => term.userId === userId && term.academicYearId === yearId).map((t) => t.id),
   );
@@ -191,16 +192,14 @@ export function deleteAcademicYear(userId: ID, yearId: ID): void {
     db.courses.filter((course) => termIds.has(course.termId)).map((course) => course.id),
   );
 
-  update((current) => ({
-    ...current,
-    academicYears: current.academicYears.filter((year) => year.id !== yearId),
-    terms: current.terms.filter((term) => !termIds.has(term.id)),
-    courses: current.courses.filter((course) => !courseIds.has(course.id)),
-    topics: current.topics.filter((topic) => !courseIds.has(topic.courseId)),
-    results: current.results.filter((result) => !termIds.has(result.termId)),
-    sessions: current.sessions.filter((session) => !courseIds.has(session.courseId)),
-    events: current.events.filter((event) => !event.courseId || !courseIds.has(event.courseId)),
-  }));
+  removeRows([
+    { collection: 'academicYears', id: yearId },
+    ...[...termIds].map((id) => ({ collection: 'terms' as const, id })),
+    ...[...courseIds].map((id) => ({ collection: 'courses' as const, id })),
+    ...db.topics.filter((row) => courseIds.has(row.courseId)).map((row) => ({ collection: 'topics' as const, id: row.id })),
+    ...db.results.filter((row) => termIds.has(row.termId)).map((row) => ({ collection: 'results' as const, id: row.id })),
+    ...db.sessions.filter((row) => courseIds.has(row.courseId)).map((row) => ({ collection: 'sessions' as const, id: row.id })),
+  ]);
 }
 
 export function createTerm(
@@ -245,17 +244,17 @@ export function updateTerm(userId: ID, termId: ID, patch: Partial<Term>): void {
 
 export function deleteTerm(userId: ID, termId: ID): void {
   const db = getDatabase();
+  if (!db.terms.some((row) => row.id === termId && row.userId === userId)) return;
   const courseIds = new Set(
     db.courses.filter((course) => course.userId === userId && course.termId === termId).map((c) => c.id),
   );
-  update((current) => ({
-    ...current,
-    terms: current.terms.filter((term) => term.id !== termId),
-    courses: current.courses.filter((course) => !courseIds.has(course.id)),
-    topics: current.topics.filter((topic) => !courseIds.has(topic.courseId)),
-    results: current.results.filter((result) => result.termId !== termId),
-    sessions: current.sessions.filter((session) => !courseIds.has(session.courseId)),
-  }));
+  removeRows([
+    { collection: 'terms', id: termId },
+    ...[...courseIds].map((id) => ({ collection: 'courses' as const, id })),
+    ...db.topics.filter((row) => courseIds.has(row.courseId)).map((row) => ({ collection: 'topics' as const, id: row.id })),
+    ...db.results.filter((row) => row.termId === termId).map((row) => ({ collection: 'results' as const, id: row.id })),
+    ...db.sessions.filter((row) => courseIds.has(row.courseId)).map((row) => ({ collection: 'sessions' as const, id: row.id })),
+  ]);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -304,18 +303,21 @@ export function setCourseArchived(userId: ID, courseId: ID, archived: boolean): 
 }
 
 export function deleteCourse(userId: ID, courseId: ID): void {
+  const db = getDatabase();
+  const course = db.courses.find((row) => row.id === courseId && row.userId === userId);
+  if (!course) return;
+  removeRows([
+    { collection: 'courses', id: courseId },
+    ...db.topics.filter((row) => row.userId === userId && row.courseId === courseId).map((row) => ({ collection: 'topics' as const, id: row.id })),
+    ...db.sessions.filter((row) => row.userId === userId && row.courseId === courseId).map((row) => ({ collection: 'sessions' as const, id: row.id })),
+  ]);
   update((current) => ({
     ...current,
-    courses: current.courses.filter(
-      (course) => !(course.id === courseId && course.userId === userId),
-    ),
-    topics: current.topics.filter((topic) => topic.courseId !== courseId),
-    sessions: current.sessions.filter((session) => session.courseId !== courseId),
     events: current.events.map((event) =>
-      event.courseId === courseId ? { ...event, courseId: null } : event,
+      event.courseId === courseId && event.userId === userId ? { ...event, courseId: null } : event,
     ),
     tasks: current.tasks.map((task) =>
-      task.courseId === courseId ? { ...task, courseId: null } : task,
+      task.courseId === courseId && task.userId === userId ? { ...task, courseId: null } : task,
     ),
   }));
 }
@@ -541,6 +543,7 @@ export function createSession(
   fields: Omit<StudySession, 'id' | 'userId' | 'status' | 'generated' | 'completedAt' | 'durationMinutes'>,
 ): StudySession {
   const duration = toMinutes(fields.endTime) - toMinutes(fields.startTime);
+  if (duration <= 0) throw new Error('Session end time must be after its start time.');
   const session: StudySession = {
     id: uid('ses'),
     userId,
@@ -555,17 +558,16 @@ export function createSession(
 }
 
 export function completeSession(userId: ID, sessionId: ID): void {
-  const db = getDatabase();
-  const session = db.sessions.find((s) => s.id === sessionId && s.userId === userId);
-  if (!session || session.status === 'COMPLETED') return;
-
   update((current) => ({
     ...current,
     sessions: current.sessions.map((s) =>
-      s.id === sessionId ? { ...s, status: 'COMPLETED', completedAt: nowIso() } : s,
+      s.id === sessionId && s.userId === userId && s.status !== 'COMPLETED'
+        ? { ...s, status: 'COMPLETED', completedAt: nowIso() }
+        : s,
     ),
     topics: current.topics.map((topic) => {
-      if (topic.id !== session.topicId) return topic;
+      const session = current.sessions.find((item) => item.id === sessionId && item.userId === userId);
+      if (!session || session.status === 'COMPLETED' || topic.id !== session.topicId || topic.userId !== userId) return topic;
       const completedMinutes = topic.completedMinutes + session.durationMinutes;
       return {
         ...topic,
@@ -597,6 +599,7 @@ export function rescheduleSession(
   startTime: string,
   endTime: string,
 ): void {
+  if (toMinutes(endTime) <= toMinutes(startTime)) return;
   const db = getDatabase();
   const session = db.sessions.find((s) => s.id === sessionId && s.userId === userId);
   if (!session) return;

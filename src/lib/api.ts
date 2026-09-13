@@ -11,7 +11,7 @@
  * against relative paths and cookies are sent automatically.
  */
 
-import type { ID, Profile } from '@shared/types';
+import type { ID, Profile, ShareField } from '@shared/types';
 import type { ImportBundle, ProfileInput } from '@shared/schemas';
 
 
@@ -113,7 +113,13 @@ export const api = {
   /* ------------------------------- feedback ------------------------------ */
 
   sendFeedback: (input: { category: string; message: string }) =>
-    request<{ id: ID }>('/feedback', { method: 'POST', body: input }),
+    request<{ feedback: { id: ID } }>('/feedback', { method: 'POST', body: input }),
+
+  createShareSnapshot: (input: { fields: string[]; expiresInDays: number | null }) =>
+    request<{ snapshot: CreatedSnapshot }>('/share-snapshots', { method: 'POST', body: input }),
+
+  sharedSnapshot: (token: string, signal?: AbortSignal) =>
+    request<{ snapshot: PublicSnapshot }>(`/share/${encodeURIComponent(token)}`, { signal }),
 
   /* --------------------------------- sync -------------------------------- */
 
@@ -122,7 +128,57 @@ export const api = {
    * everyone else's. See src/lib/sync.ts for how the result is applied.
    */
   sync: (input: SyncRequest) => request<SyncResponse>('/sync', { method: 'POST', body: input }),
+
+  /* ------------------------------- analytics ------------------------------ */
+
+  /**
+   * Reports product-analytics events the server cannot observe for itself —
+   * sessions completed, plans generated, the app being opened. Names only; see
+   * api/events.ts.
+   */
+  recordEvents: (events: { name: string; at?: string }[]) =>
+    request<{ recorded: number }>('/events', { method: 'POST', body: { events } }),
+
+  /* --------------------------------- admin -------------------------------- */
+
+
+  /**
+   * Owner-only product metrics, aggregated in the database.
+   *
+   * The timezone offset travels with the request so the server cuts day buckets
+   * where the owner is reading them; without it the plot's "today" would be a
+   * UTC day and the last column would look half-empty all evening.
+   */
+  adminOverview: (days: number, signal?: AbortSignal) =>
+    request<AdminOverview>(
+      `/admin/overview?days=${days}&offset=${new Date().getTimezoneOffset()}`,
+      { signal },
+    ),
 };
+
+export interface AdminOverview {
+  range: { days: number; seriesDays: number };
+  totals: {
+    students: number;
+    newStudents: number;
+    activeUsers: number;
+    onboarded: number;
+    /** Distinct accounts with a completed session in the last two days. */
+    studying: number;
+    suspended: number;
+    deleted: number;
+    openGoals: number;
+  };
+  /** Event counts for the selected period, keyed by event name. */
+  events: Record<string, number>;
+  /** The same names counted over the preceding period of equal length. */
+  previous: Record<string, number>;
+  /** One row per event name per day, already bucketed. */
+  daily: { name: string; day: string; total: number }[];
+  institutions: { institution: string; students: number }[];
+  feedback: { open: number; total: number };
+}
+
 
 export interface SyncWireRow {
   collection: string;
@@ -144,6 +200,20 @@ export interface SyncResponse {
   syncedAt: string;
   /** True when the account had more changes than one response can carry. */
   hasMore: boolean;
+}
+
+export interface CreatedSnapshot {
+  id: ID;
+  createdAt: string;
+  fields: ShareField[];
+  url: string;
+}
+
+export interface PublicSnapshot {
+  fields: ShareField[];
+  payload: Record<string, string | number>;
+  createdAt: string;
+  expiresAt: string | null;
 }
 
 

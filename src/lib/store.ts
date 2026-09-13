@@ -605,4 +605,38 @@ export function removeRow(key: keyof Database, id: ID): void {
   });
 }
 
+/** Removes several rows atomically and records synced deletes. */
+export function removeRows(removals: ReadonlyArray<{ collection: keyof Database; id: ID }>): void {
+  if (removals.length === 0) return;
+  const at = nowIso();
+  update((current) => {
+    const grouped = new Map<string, Set<string>>();
+    for (const removal of removals) {
+      const ids = grouped.get(String(removal.collection)) ?? new Set<string>();
+      ids.add(removal.id);
+      grouped.set(String(removal.collection), ids);
+    }
+    const next: Database = { ...current };
+    const tombstones = [...current.tombstones];
+    const outbox = new Set(current.outbox);
+    for (const [collection, ids] of grouped) {
+      const rows = next[collection as keyof Database];
+      if (!Array.isArray(rows)) continue;
+      (next[collection as keyof Database] as unknown) = (rows as Array<{ id?: ID }>).filter(
+        (row) => !row.id || !ids.has(row.id),
+      );
+      if (!SYNCED.has(collection)) continue;
+      for (const id of ids) {
+        tombstones.push({ id, collection, deletedAt: at });
+        outbox.add(outboxKey(collection, id));
+      }
+    }
+    next.tombstones = tombstones.filter(
+      (row, index, all) => all.findIndex((candidate) => candidate.collection === row.collection && candidate.id === row.id) === index,
+    );
+    next.outbox = [...outbox];
+    return next;
+  });
+}
+
 

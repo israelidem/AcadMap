@@ -15,9 +15,10 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { UsageEvent } from '@shared/types';
-import { countEvents, countEventsBetween, dailyCounts, daysAgoIso } from '@/lib/analytics';
+import type { FigureSource } from '@/lib/adminMetrics';
 import { cn } from '@/lib/utils';
 import { LogoMark } from '@/components/brand';
+
 
 /* -------------------------------------------------------------------------- */
 /*                                    Shell                                   */
@@ -270,9 +271,18 @@ export interface FigureGroup {
  * nothing in it reads as an empty ledger rather than twelve boxes each
  * displaying a bold zero, which looks like a fault.
  */
-export function FiguresLedger({ groups, days }: { groups: FigureGroup[]; days: number }) {
-  const since = daysAgoIso(days);
+export function FiguresLedger({
+  groups,
+  days,
+  source,
+}: {
+  groups: FigureGroup[];
+  days: number;
+  /** Where counts come from — the server, never this browser's own events. */
+  source: FigureSource;
+}) {
   const shapeDays = Math.max(10, days);
+
 
   return (
     <div className="am-scroll-x">
@@ -316,20 +326,11 @@ export function FiguresLedger({ groups, days }: { groups: FigureGroup[]; days: n
             </tr>
 
             {group.figures.map((figure) => {
-              const isEvent = typeof figure.event === 'string';
-              const value = isEvent
-                ? countEvents(figure.event as UsageEvent['name'], since)
-                : (figure.value ?? 0);
-              const previous = isEvent
-                ? countEventsBetween(
-                    figure.event as UsageEvent['name'],
-                    daysAgoIso(days * 2),
-                    since,
-                  )
-                : null;
-              const series = isEvent
-                ? dailyCounts([figure.event as UsageEvent['name']], shapeDays)
-                : null;
+              const event = figure.event;
+              const value = event ? source.count(event) : (figure.value ?? 0);
+              const previous = event ? source.previous(event) : null;
+              const series = event ? source.series(event, shapeDays) : null;
+
 
               return (
                 <tr

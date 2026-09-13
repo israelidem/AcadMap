@@ -203,6 +203,10 @@ async function run(): Promise<void> {
       const done = await exchange(userId);
       if (done) break;
     }
+    if (guard >= 20) {
+      setState({ running: false, error: 'Sync is still catching up. It will continue in the background.' });
+      return;
+    }
     setState({ running: false, lastSyncedAt: lastSyncedAt(userId), error: null });
   } catch (error) {
     const message =

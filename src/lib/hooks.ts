@@ -42,7 +42,10 @@ function mine<T extends { userId: ID }>(rows: T[], userId: ID | null): T[] {
 export function useUserData(userId: ID | null) {
   return useDb((db: Database) => ({
     years: sortBy(mine(db.academicYears, userId), (y) => y.startYear),
-    terms: sortBy(mine(db.terms, userId), (t) => `${t.academicYearId}-${t.position}`),
+    terms: sortBy(mine(db.terms, userId), (t) => {
+      const year = db.academicYears.find((item) => item.id === t.academicYearId);
+      return `${String(year?.startYear ?? 0).padStart(4, '0')}-${String(t.position).padStart(3, '0')}-${t.id}`;
+    }),
     courses: mine(db.courses, userId),
     topics: sortBy(mine(db.topics, userId), (t) => t.position),
     results: mine(db.results, userId),

@@ -39,7 +39,7 @@ export default defineConfig({
           },
         ],
         shortcuts: [
-          { name: "Today's plan", url: '/planner' },
+          { name: "Today's plan", url: '/app/planner' },
           { name: 'GPA calculator', url: '/calculator' },
         ],
       },

@@ -83,13 +83,26 @@ export default {
           from: { opacity: '0', transform: 'scale(1.06) rotate(-2.5deg)' },
           to: { opacity: '1', transform: 'scale(1) rotate(-1.5deg)' },
         },
+        /*
+         * A streak flame breathes rather than blinks. The movement is kept under
+         * 4% of scale and a sliver of opacity: enough to read as alive next to
+         * static figures, small enough to sit beside a CGPA without competing
+         * with it. Disabled wholesale by the reduced-motion rule in index.css.
+         */
+        flicker: {
+          '0%, 100%': { transform: 'scale(1) rotate(0deg)', opacity: '1' },
+          '35%': { transform: 'scale(1.035) rotate(-1.5deg)', opacity: '0.93' },
+          '70%': { transform: 'scale(0.985) rotate(1deg)', opacity: '0.97' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 150ms ease-out',
         'slide-up': 'slide-up 200ms ease-out',
         tally: 'tally 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both',
         stamp: 'stamp 320ms cubic-bezier(0.2, 0.9, 0.3, 1) both',
+        flicker: 'flicker 2.6s ease-in-out infinite',
       },
+
     },
   },
   plugins: [],

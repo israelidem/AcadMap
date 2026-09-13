@@ -9,6 +9,7 @@
  * other figure on the page is a supporting column, printed smaller.
  */
 
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarClock, Check, SkipForward, TrendingDown, TrendingUp } from 'lucide-react';
 import { formatDuration, todayStr } from '@shared/time';
@@ -17,6 +18,8 @@ import { completeSession, skipSession } from '@/lib/actions';
 import { useAcademicMetrics, usePlannerMetrics, useSession, useUserData } from '@/lib/hooks';
 import { GpaHistoryChart } from '@/components/charts';
 import { RecordPlate, UnitLedger, type LedgerEntry } from '@/components/ledger';
+import { StreakFlame } from '@/components/streak';
+
 import { Badge, Button, Card, EmptyState, PageHeader, Progress, useToast } from '@/components/ui';
 
 function greeting(): string {
@@ -31,19 +34,26 @@ function Figure({
   label,
   value,
   sub,
+  glyph,
 }: {
   label: string;
   value: string;
   sub?: string;
+  /** Sits against the figure itself, not the label, so it reads as part of it. */
+  glyph?: ReactNode;
 }) {
   return (
     <div className="border-t border-rule pt-2 first:border-t-0 first:pt-0 sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0 sm:first:border-l-0 sm:first:pl-0">
       <p className="am-eyebrow">{label}</p>
-      <p className="tabular mt-1 text-xl font-medium leading-none">{value}</p>
+      <p className="tabular mt-1 flex items-center gap-1.5 text-xl font-medium leading-none">
+        {glyph}
+        {value}
+      </p>
       {sub && <p className="mt-1 text-xs text-muted">{sub}</p>}
     </div>
   );
 }
+
 
 export default function Dashboard() {
   const { user, profile } = useSession();
@@ -80,6 +90,18 @@ export default function Dashboard() {
       : (termTopics.filter((topic) => topic.done).length / termTopics.length) * 100;
 
   const TrendIcon = metrics.trend === 'DOWN' ? TrendingDown : TrendingUp;
+
+  /*
+   * A live run with nothing logged today.
+   *
+   * `computeStreak` counts back from yesterday when today has no completed
+   * session, so the streak is deliberately not lost before the day is over. The
+   * cost of that kindness is that a student on day nine sees "9d" and cannot
+   * tell they are one skipped evening from zero. This is the flag that says so.
+   */
+  const streakAtRisk =
+    planner.streak.current > 0 && planner.streak.lastQualifyingDay !== today;
+
 
   /*
    * The ledger plots the term being worked on. With no current term — or no
@@ -131,8 +153,17 @@ export default function Dashboard() {
               <Figure
                 label="Study streak"
                 value={`${planner.streak.current}d`}
-                sub={`longest ${planner.streak.longest}d`}
+                glyph={
+                  <StreakFlame days={planner.streak.current} atRisk={streakAtRisk} size="md" />
+                }
+                /*
+                 * When the run is alive but today is not logged, that is more
+                 * useful than the longest-ever figure — it is the one thing the
+                 * student can still act on this evening.
+                 */
+                sub={streakAtRisk ? 'keep it: log today' : `longest ${planner.streak.longest}d`}
               />
+
             </div>
           </div>
 
